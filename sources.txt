@@ -1,0 +1,59 @@
+Список источников для диплома
+
+[1] GitHub OAuth 2.0 — документация
+    https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
+
+[2] Wang Y. et al. CodeT5: Identifier-aware Unified Pre-trained Encoder-Decoder Models for Code Understanding and Generation // Proceedings of EMNLP 2021.
+    https://arxiv.org/abs/2109.00859
+
+[3] Docker Compose — официальная документация
+    https://docs.docker.com/compose/
+
+[4] SonarQube — официальный сайт
+    https://www.sonarsource.com/products/sonarqube/
+
+[5] GitHub Copilot — официальная страница продукта
+    https://github.com/features/copilot
+
+[6] Sourcery — официальный сайт
+    https://sourcery.ai/
+
+[7] JetBrains IntelliJ IDEA — официальная страница
+    https://www.jetbrains.com/idea/
+
+[8] Codacy — официальный сайт
+    https://www.codacy.com/
+
+[9] SQLite — официальная документация
+    https://www.sqlite.org/docs.html
+
+[10] Go — официальный сайт языка программирования
+    https://go.dev/
+
+[11] go-git — библиотека для работы с Git на Go
+    https://github.com/go-git/go-git
+
+[12] Python — официальный сайт языка программирования
+    https://www.python.org/
+
+[13] React — официальная документация
+    https://react.dev/
+
+[14] Visual Studio Code — официальный сайт
+    https://code.visualstudio.com/
+
+Расстановка по тексту:
+- Глава 1, раздел 1.3.1 (SonarQube) → [4]
+- Глава 1, раздел 1.3.2 (GitHub Copilot) → [5]
+- Глава 1, раздел 1.3.3 (Sourcery) → [6]
+- Глава 1, раздел 1.3.4 (JetBrains IntelliJ IDEA) → [7]
+- Глава 1, раздел 1.3.5 (Codacy) → [8]
+- Глава 2, раздел 2.2 (GitHub OAuth 2.0) → [1]
+- Глава 2, раздел 2.4 (CodeT5) → [2]
+- Глава 2, раздел 2.6 (Docker Compose) → [3]
+- Глава 2, раздел 2.6 / Глава 3 (SQLite) → [9]
+- Глава 3, раздел 3.1.1 (Go) → [10]
+- Глава 3, раздел 3.1.1 (go-git) → [11]
+- Глава 3, раздел 3.1.2 (Python) → [12]
+- Глава 3, раздел 3.1.3 (React) → [13]
+- Глава 3, раздел 3.1.4 (Visual Studio Code) → [14]

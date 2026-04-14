@@ -1,0 +1,67 @@
+services:
+
+  ml-service:
+    build: ./backend-python
+    container_name: ml-service
+    ports:
+      - "${ML_SERVICE_PORT:-8001}:8001"
+    environment:
+      - MODEL_DIR=/app/model
+      - ADAPTER_DIR=/app/adapter
+    volumes:
+      - ./backend-python/model:/app/model:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  go-backend:
+    build: ./backend-go
+    container_name: go-backend
+    ports:
+      - "${GO_BACKEND_PORT:-8080}:8080"
+    environment:
+      - PYTHON_SERVICE_URL=${PYTHON_SERVICE_URL:-http://ml-service:8001}
+      - DB_PATH=${DB_PATH:-/data/history.db}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+    volumes:
+      - db-data:/data
+    depends_on:
+      ml-service:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./refactor-ui
+      args:
+        - VITE_API_URL=${VITE_API_URL:-}
+    container_name: frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      go-backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db-data:

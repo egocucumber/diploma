@@ -1,0 +1,2016 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ВКР — Фролов К.М. — Сервис автоматического рефакторинга legacy-кода</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #e0f5f8;
+      --surface: #ffffff;
+      --surfaceAlt: #f4fafb;
+      --border: #cce9ed;
+      --accent: #0099aa;
+      --accentDk: #006677;
+      --accentLt: #d9f3f6;
+      --text: #0d0d0d;
+      --sub: #444444;
+      --muted: #888888;
+      --green: #16a34a;
+      --greenBg: #d1fae5;
+      --greenBdr: #86efac;
+      --dangerBg: #fef2f2;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── slides ── */
+    #slides {
+      width: 100%;
+      height: 100vh;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 60px 72px;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    .slide.active {
+      display: flex;
+    }
+
+    /* ── nav ── */
+    nav {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 6px 14px;
+      box-shadow: 0 4px 16px rgba(0, 80, 90, .10);
+      z-index: 100;
+    }
+
+    nav button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 18px;
+      transition: background .15s;
+    }
+
+    nav button:hover {
+      background: var(--accentLt);
+    }
+
+    nav button:disabled {
+      color: var(--muted);
+      cursor: default;
+    }
+
+    nav button:disabled:hover {
+      background: none;
+    }
+
+    #counter {
+      font-size: 12px;
+      color: var(--sub);
+      min-width: 52px;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    #progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: var(--accent);
+      transition: width .3s ease;
+      z-index: 200;
+      border-radius: 0 2px 2px 0;
+    }
+
+    #slide-num {
+      position: fixed;
+      top: 16px;
+      right: 24px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 600;
+      z-index: 100;
+    }
+
+    /* ── common ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .06);
+      padding: 20px 24px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accentLt);
+      color: var(--accentDk);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+
+    .tag {
+      display: inline-block;
+      background: var(--accentLt);
+      color: var(--accentDk);
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .divider {
+      width: 44px;
+      height: 3px;
+      background: var(--accent);
+      border-radius: 99px;
+      margin: 12px 0;
+    }
+
+    .slide-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      font-size: 36px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -.02em;
+    }
+
+    h2 {
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: -.01em;
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    p {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--sub);
+    }
+
+    .accent {
+      color: var(--accent);
+    }
+
+    .sub {
+      color: var(--sub);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .bold {
+      font-weight: 700;
+    }
+
+    /* ── grid ── */
+    .g2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      width: 100%;
+    }
+
+    .g3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 14px;
+      width: 100%;
+    }
+
+    .g4 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+    }
+
+    /* ── stat ── */
+    .stat-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .06);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-val {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--sub);
+      font-weight: 500;
+    }
+
+    /* ── code ── */
+    pre {
+      background: #f4fafb;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #1a1a2e;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    /* ── pipeline ── */
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      width: 100%;
+    }
+
+    .pipe-step {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .06);
+      text-align: center;
+    }
+
+    .pipe-step .icon {
+      font-size: 20px;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .pipe-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--accentLt);
+      border: 1.5px solid var(--accent);
+      color: var(--accentDk);
+      font-size: 10px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 8px;
+      letter-spacing: .03em;
+    }
+
+    .pipe-arrow {
+      font-size: 18px;
+      color: var(--accent);
+      padding: 0 6px;
+      flex-shrink: 0;
+      align-self: center;
+      font-weight: 700;
+    }
+
+    /* ── list ── */
+    ul.sl {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    ul.sl li {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--sub);
+      line-height: 1.5;
+    }
+
+    ul.sl li::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      min-width: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-top: 5px;
+    }
+
+    /* ── pattern grid ── */
+    .pg {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      width: 100%;
+    }
+
+    .pi {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .04);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pi .dot {
+      width: 7px;
+      height: 7px;
+      min-width: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .pi span {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--sub);
+    }
+
+    /* ── check ── */
+    .ci {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .04);
+    }
+
+    .ci-icon {
+      width: 20px;
+      height: 20px;
+      min-width: 20px;
+      border-radius: 50%;
+      background: var(--greenBg);
+      border: 1px solid var(--greenBdr);
+      color: var(--green);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      margin-top: 1px;
+    }
+
+    .ci p {
+      font-size: 13px;
+    }
+
+    /* ── highlight ── */
+    .hl {
+      background: var(--accentLt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accentDk);
+    }
+
+    /* ── tech badge ── */
+    .tb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .tb .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── arch box ── */
+    .arch {
+      background: var(--surfaceAlt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--sub);
+      text-align: center;
+    }
+
+    /* ── content areas ── */
+    .content {
+      width: 100%;
+      max-width: 920px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .content-c {
+      width: 100%;
+      max-width: 920px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      text-align: center;
+    }
+
+    /* ── title card ── */
+    .title-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px 52px;
+      max-width: 820px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0, 80, 90, .14);
+      text-align: center;
+    }
+
+    /* ── university header (slide 1) ── */
+    .univ-header {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .univ-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--accentLt);
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .univ-text {
+      font-size: 10px;
+      color: var(--sub);
+      line-height: 1.5;
+      font-weight: 500;
+    }
+
+    .univ-text strong {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* ── author block ── */
+    .author-block {
+      display: flex;
+      gap: 12px;
+      width: 100%;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .author-card {
+      background: var(--surfaceAlt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 13px;
+      color: var(--sub);
+      line-height: 1.6;
+    }
+
+    .author-card strong {
+      color: var(--text);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    /* ── diagram box ── */
+    .diagram-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .06);
+      width: 100%;
+      overflow: auto;
+    }
+
+    /* ── flowchart (pure CSS) ── */
+    .fc {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+
+    .fc-row {
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+
+    .fc-node {
+      background: var(--surfaceAlt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--sub);
+      text-align: center;
+      min-width: 120px;
+      white-space: nowrap;
+    }
+
+    .fc-node.accent-node {
+      background: var(--accentLt);
+      border-color: var(--accent);
+      color: var(--accentDk);
+    }
+
+    .fc-node.start {
+      border-radius: 99px;
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accentDk);
+    }
+
+    .fc-arrow {
+      font-size: 14px;
+      color: var(--accent);
+      padding: 0 4px;
+    }
+
+    .fc-down {
+      font-size: 14px;
+      color: var(--accent);
+      text-align: center;
+      line-height: 1;
+      padding: 2px 0;
+    }
+
+    .fc-label {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 0 4px;
+    }
+
+    /* ── comparison table ── */
+    .cmp-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .cmp-table th,
+    .cmp-table td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .cmp-table th {
+      background: var(--accentLt);
+      color: var(--accentDk);
+      font-weight: 700;
+    }
+
+    .cmp-table td:first-child {
+      text-align: left;
+      font-weight: 600;
+      color: var(--sub);
+    }
+
+    .cmp-table .yes {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .cmp-table .no {
+      color: #dc2626;
+      font-weight: 700;
+    }
+
+    .cmp-table .ours {
+      background: #f0fdf4;
+    }
+
+    .cmp-table tr:nth-child(even) td {
+      background: var(--surfaceAlt);
+    }
+
+    .cmp-table tr:nth-child(even) td.ours {
+      background: #e8fdf2;
+    }
+
+    /* ── db schema ── */
+    .db-table {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 11px;
+      box-shadow: 0 1px 4px rgba(0, 80, 90, .06);
+    }
+
+    .db-table .db-title {
+      background: var(--accent);
+      color: #fff;
+      padding: 5px 10px;
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    .db-table .db-row {
+      padding: 3px 10px;
+      border-top: 1px solid var(--border);
+      color: var(--sub);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .db-row .key {
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    .db-row .fk {
+      color: #d97706;
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    /* ── animations ── */
+    .slide.active .card,
+    .slide.active .stat-block,
+    .slide.active .pipe-step,
+    .slide.active .pi,
+    .slide.active .ci,
+    .slide.active .tb,
+    .slide.active .title-card,
+    .slide.active .diagram-box,
+    .slide.active .db-table {
+      animation: su .22s ease-out both;
+    }
+
+    @keyframes su {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .stagger>*:nth-child(1) {
+      animation-delay: .04s;
+    }
+
+    .stagger>*:nth-child(2) {
+      animation-delay: .09s;
+    }
+
+    .stagger>*:nth-child(3) {
+      animation-delay: .14s;
+    }
+
+    .stagger>*:nth-child(4) {
+      animation-delay: .19s;
+    }
+
+    .stagger>*:nth-child(5) {
+      animation-delay: .24s;
+    }
+
+    .stagger>*:nth-child(6) {
+      animation-delay: .29s;
+    }
+
+    .stagger>*:nth-child(7) {
+      animation-delay: .34s;
+    }
+
+    .stagger>*:nth-child(8) {
+      animation-delay: .39s;
+    }
+  @media print {
+    @page { size: A4 landscape; margin: 0; }
+
+    body { height: auto; overflow: visible; background: var(--bg); }
+
+    #progress-bar, #slide-num, nav { display: none !important; }
+
+    #slides { width: auto; height: auto; position: static; }
+
+    .slide {
+      display: flex !important;
+      position: relative !important;
+      width: 297mm;
+      height: 210mm;
+      page-break-after: always;
+      break-after: page;
+      overflow: hidden;
+      padding: 32px 48px 32px;
+    }
+
+    .slide.active { display: flex !important; }
+
+    * { animation: none !important; transition: none !important; }
+  }
+  </style>
+</head>
+
+<body>
+
+  <div id="progress-bar"></div>
+  <div class="slide-num" id="slide-num">1 / 20</div>
+
+  <div id="slides">
+
+    <!-- ═══ 1. Титульный ═══ -->
+    <div class="slide active" id="s1">
+      <div style="width:100%;max-width:820px;display:flex;flex-direction:column;align-items:center;gap:16px;">
+        <div class="univ-header" style="max-width:820px;width:100%;">
+          <img src="dgtu.svg" alt="ДГТУ" style="width:80px;height:80px;object-fit:contain;flex-shrink:0;" />
+          <div class="univ-text">
+            МИНИСТЕРСТВО НАУКИ И ВЫСШЕГО ОБРАЗОВАНИЯ РОССИЙСКОЙ ФЕДЕРАЦИИ<br />
+            ФГБОУ ВО <strong>«ДОНСКОЙ ГОСУДАРСТВЕННЫЙ ТЕХНИЧЕСКИЙ УНИВЕРСИТЕТ» (ДГТУ)</strong><br />
+            Кафедра «Программное обеспечение вычислительной техники и автоматизированных систем»
+          </div>
+        </div>
+        <div class="title-card" style="max-width:820px;width:100%;">
+          <div class="chip" style="margin-bottom:18px;">Выпускная квалификационная работа</div>
+          <h1 style="margin-bottom:14px;">
+            Сервис автоматического рефакторинга<br />
+            <span class="accent">legacy-кода</span> на основе ML-анализа<br />паттернов изменений
+          </h1>
+          <div class="divider" style="margin:16px auto;"></div>
+          <p style="font-size:14px;max-width:560px;margin:0 auto 24px;">
+            Автоматическое обнаружение запахов кода и генерация предложений по рефакторингу<br />
+            на основе модели CodeT5
+          </p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:20px;">
+            <span class="tag">CodeT5</span><span class="tag">FastAPI</span>
+            <span class="tag">Go</span><span class="tag">React</span><span class="tag">Docker</span>
+          </div>
+          <div class="author-block">
+            <div class="author-card">
+              Студент группы ВПР43<br /><strong>Фролов К.М.</strong>
+            </div>
+            <div class="author-card">
+              Руководитель<br /><strong>Атаян А.М.</strong><br />доц. кафедры ПОВТиАС
+            </div>
+          </div>
+          <p class="muted" style="font-size:12px;margin-top:14px;">Ростов-на-Дону, 2026 г.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 2. Актуальность ═══ -->
+    <div class="slide" id="s2">
+      <div class="content">
+        <div>
+          <div class="slide-label">Актуальность</div>
+          <h2>Проблема технического долга</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g4 stagger">
+          <div class="card" style="text-align:center;">
+            <div class="pipe-icon" style="margin-bottom:10px;">01</div>
+            <h3 style="margin-bottom:6px;">Технический<br />долг</h3>
+            <p>Разработчики тратят значительную часть времени на понимание и исправление чужого кода</p>
+          </div>
+          <div class="card" style="text-align:center;">
+            <div class="pipe-icon" style="margin-bottom:10px;">02</div>
+            <h3 style="margin-bottom:6px;">Ручной<br />ревью</h3>
+            <p>Code review требует высокой квалификации. Запахи кода часто остаются незамеченными</p>
+          </div>
+          <div class="card" style="text-align:center;">
+            <div class="pipe-icon" style="margin-bottom:10px;">03</div>
+            <h3 style="margin-bottom:6px;">Статический<br />анализ</h3>
+            <p>Инструменты выявляют проблемы, но не предлагают конкретного исправленного кода</p>
+          </div>
+          <div class="card" style="text-align:center;">
+            <div class="pipe-icon" style="margin-bottom:10px;">04</div>
+            <h3 style="margin-bottom:6px;">Цель<br />работы</h3>
+            <p>Создать систему, которая автоматически находит запахи кода и генерирует рефакторинг</p>
+          </div>
+        </div>
+        <div class="hl" style="width:100%;">
+          Разрыв между детекцией проблем и реальным рефакторингом остаётся незакрытым в существующих инструментах
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 3. Цель и задачи ═══ -->
+    <div class="slide" id="s3">
+      <div class="content">
+        <div>
+          <div class="slide-label">Задачи</div>
+          <h2>Цель и задачи работы</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="card">
+              <h3 style="margin-bottom:10px;color:var(--accent);">Цель</h3>
+              <p style="font-size:13px;line-height:1.7;">
+                Создание программной системы автоматического рефакторинга legacy-кода,
+                обучаемой на истории коммитов для предсказания и автоматического применения улучшений.
+              </p>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:10px;">Функционал системы</h3>
+              <ul class="sl">
+                <li>Аутентификация через GitHub OAuth</li>
+                <li>Подключение к репозиториям и извлечение истории коммитов</li>
+                <li>Вычисление метрик: цикломатическая сложность, глубина вложенности, число параметров</li>
+                <li>Обучение ML-модели на парах «код до» — «код после» из реальных коммитов</li>
+                <li>Анализ репозитория и поиск участков для рефакторинга</li>
+                <li>Генерация предложений с визуализацией разницы</li>
+                <li>Публикация изменений отдельной веткой в репозиторий</li>
+              </ul>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;" class="stagger">
+            <p class="bold" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">
+              Задачи</p>
+            <div class="ci">
+              <div class="ci-icon">1</div>
+              <p>Спроектировать архитектуру микросервисного приложения</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">2</div>
+              <p>Собрать и подготовить датасет из открытых репозиториев (пары «до/после»)</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">3</div>
+              <p>Реализовать извлечение паттернов изменений из истории коммитов</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">4</div>
+              <p>Реализовать безопасное применение изменений через отдельную git-ветку</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">5</div>
+              <p>Разработать веб-интерфейс для просмотра и одобрения рефакторингов</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">6</div>
+              <p>Провести тестирование системы на реальных проектах с legacy-кодом</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 4. Обзор аналогов ═══ -->
+    <div class="slide" id="s4">
+      <div class="content">
+        <div>
+          <div class="slide-label">Анализ аналогов</div>
+          <h2>Обзор существующих решений</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="diagram-box" style="padding:0;overflow:hidden;">
+          <table class="cmp-table">
+            <thead>
+              <tr>
+                <th>Критерий</th>
+                <th>SonarQube</th>
+                <th>GitHub Copilot</th>
+                <th>Sourcery</th>
+                <th>IntelliJ IDEA</th>
+                <th>Codacy</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>ML-анализ паттернов изменений</td>
+                <td class="no">–</td>
+                <td class="yes">+</td>
+                <td class="yes">+</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+              </tr>
+              <tr>
+                <td>Учёт истории Git (commit-пары)</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+              </tr>
+              <tr>
+                <td>Автоматическое исправление кода</td>
+                <td class="no">–</td>
+                <td class="yes">+</td>
+                <td class="yes">+</td>
+                <td class="yes">+</td>
+                <td class="no">–</td>
+              </tr>
+              <tr>
+                <td>Глубина анализа (AST + CC)</td>
+                <td class="yes">+</td>
+                <td class="no">–</td>
+                <td class="yes">+</td>
+                <td class="yes">+</td>
+                <td class="yes">+</td>
+              </tr>
+              <tr>
+                <td>Объяснение причин правок</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+                <td class="yes">+</td>
+                <td class="no">–</td>
+                <td class="no">–</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="hl" style="width:100%;">
+          Ни один из аналогов не использует историю коммитов как источник паттернов рефакторинга
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 5. Архитектура системы ═══ -->
+    <div class="slide" id="s5">
+      <div class="content">
+        <div>
+          <div class="slide-label">Архитектура</div>
+          <h2>Общая архитектура системы</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="pipeline stagger" style="width:100%;">
+          <div class="pipe-step">
+            <div class="pipe-icon">UI</div>
+            <h3 style="font-size:13px;margin-bottom:4px;">React UI</h3>
+            <p style="font-size:11px;">Ввод URL репозитория, Monaco Diff Editor, история анализов</p>
+          </div>
+          <div class="pipe-arrow">→</div>
+          <div class="pipe-step">
+            <div class="pipe-icon">NX</div>
+            <h3 style="font-size:13px;margin-bottom:4px;">nginx</h3>
+            <p style="font-size:11px;">Reverse proxy, CSP-заголовки, SSL</p>
+          </div>
+          <div class="pipe-arrow">→</div>
+          <div class="pipe-step">
+            <div class="pipe-icon">Go</div>
+            <h3 style="font-size:13px;margin-bottom:4px;">Go Backend</h3>
+            <p style="font-size:11px;">REST API, GitHub OAuth, Git-обход, SQLite</p>
+          </div>
+          <div class="pipe-arrow">→</div>
+          <div class="pipe-step">
+            <div class="pipe-icon">AST</div>
+            <h3 style="font-size:13px;margin-bottom:4px;">Детекция</h3>
+            <p style="font-size:11px;">AST + regex, 15 паттернов, /detect</p>
+          </div>
+          <div class="pipe-arrow">→</div>
+          <div class="pipe-step">
+            <div class="pipe-icon">ML</div>
+            <h3 style="font-size:13px;margin-bottom:4px;">Рефакторинг</h3>
+            <p style="font-size:11px;">CodeT5 генерация рефакторинга, /refactor</p>
+          </div>
+        </div>
+        <div class="g3 stagger">
+          <div class="card">
+            <h3 style="margin-bottom:8px;">Контейнеризация</h3>
+            <ul class="sl">
+              <li>3 Docker-контейнера: React UI, Go Backend, ML-сервис</li>
+              <li>nginx развёрнут отдельно как reverse proxy</li>
+              <li>Запуск одной командой: <code>docker compose up</code></li>
+              <li>ML-сервис изолирован — недоступен извне</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:8px;">Безопасность</h3>
+            <ul class="sl">
+              <li>GitHub OAuth 2.0</li>
+              <li>AES-256-GCM шифрование токенов</li>
+              <li>httpOnly cookies, CSRF-защита</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:8px;">Реальное время</h3>
+            <ul class="sl">
+              <li>SSE стриминг прогресса анализа</li>
+              <li>Файл за файлом без блокировки UI</li>
+              <li>История в SQLite с миграциями</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 6. Схема БД ═══ -->
+    <div class="slide" id="s6">
+      <div class="content">
+        <div>
+          <div class="slide-label">База данных</div>
+          <h2>Схема базы данных (SQLite)</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="diagram-box">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;" class="stagger">
+            <div class="db-table">
+              <div class="db-title">users</div>
+              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row">github_id TEXT</div>
+              <div class="db-row">login TEXT</div>
+              <div class="db-row">name TEXT</div>
+              <div class="db-row">avatar_url TEXT</div>
+              <div class="db-row">created_at DATETIME</div>
+            </div>
+            <div class="db-table">
+              <div class="db-title">sessions</div>
+              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row"><span class="fk">FK</span> user_id INTEGER</div>
+              <div class="db-row">token_enc TEXT</div>
+              <div class="db-row">expires_at DATETIME</div>
+              <div class="db-row">created_at DATETIME</div>
+            </div>
+            <div class="db-table">
+              <div class="db-title">analyses</div>
+              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row"><span class="fk">FK</span> user_id INTEGER</div>
+              <div class="db-row">repo_url TEXT</div>
+              <div class="db-row">status TEXT</div>
+              <div class="db-row">total_files INTEGER</div>
+              <div class="db-row">created_at DATETIME</div>
+            </div>
+            <div class="db-table">
+              <div class="db-title">results</div>
+              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row"><span class="fk">FK</span> analysis_id INTEGER</div>
+              <div class="db-row">filename TEXT</div>
+              <div class="db-row">language TEXT</div>
+              <div class="db-row">pattern TEXT</div>
+              <div class="db-row">explanation TEXT</div>
+              <div class="db-row">original_code TEXT</div>
+              <div class="db-row">refactored_code TEXT</div>
+              <div class="db-row">confidence REAL</div>
+              <div class="db-row">complexity_before INT</div>
+              <div class="db-row">complexity_after INT</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+            <span class="tag" style="font-size:11px;">users → sessions (1:N, CASCADE)</span>
+            <span class="tag" style="font-size:11px;">users → analyses (1:N, CASCADE)</span>
+            <span class="tag" style="font-size:11px;">analyses → results (1:N, CASCADE)</span>
+            <span class="tag" style="font-size:11px;">Миграции при старте приложения</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 7. Алгоритм анализа репозитория ═══ -->
+    <div class="slide" id="s7">
+      <div class="content">
+        <div>
+          <div class="slide-label">Алгоритм</div>
+          <h2>Алгоритм анализа репозитория</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div class="diagram-box">
+            <div class="fc">
+              <div class="fc-node start">Запрос на анализ</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Клонирование репозитория (go-git)</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-row">
+                <div class="fc-node" style="flex:1;">Git commit-история<br /><span
+                    style="font-size:10px;color:var(--muted);">пары до/после</span></div>
+                <div class="fc-arrow">+</div>
+                <div class="fc-node" style="flex:1;">Файловая система<br /><span
+                    style="font-size:10px;color:var(--muted);">.py .js .ts .go .java</span></div>
+              </div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Для каждого файла → POST /detect</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-row">
+                <div class="fc-node accent-node" style="flex:1;">Паттерн найден<br />→ POST /refactor</div>
+                <div class="fc-arrow">|</div>
+                <div class="fc-node" style="flex:1;">Clean Code<br />→ пропустить GPU</div>
+              </div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Сохранение в SQLite</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node accent-node">SSE → результаты в UI</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Двойной режим сканирования</h3>
+              <ul class="sl">
+                <li>Commit-история: методы изменились в коммите = повышенный шанс запаха</li>
+                <li>Файловая система: все поддерживаемые файлы проекта</li>
+                <li>Дедупликация по имени файла</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Преимущества разделения агентов</h3>
+              <ul class="sl">
+                <li>/detect — без GPU, быстрый (AST + regex)</li>
+                <li>Clean Code пропускает /refactor — экономия ресурсов</li>
+                <li>Фрагментация: модель видит целевой фрагмент, не весь файл</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 8. Алгоритм детекции паттернов ═══ -->
+    <div class="slide" id="s8">
+      <div class="content">
+        <div>
+          <div class="slide-label">Детекция</div>
+          <h2>Алгоритм детекции паттернов запахов кода</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div class="diagram-box" style="flex:1;">
+            <div class="fc">
+              <div class="fc-node start">Код файла</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node accent-node">Парсинг AST (Python) / Regex (JS/Go/Java)</div>
+              <div class="fc-down">↓</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;">
+                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Пустой catch?</div>
+                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Вложенность ≥ 4?</div>
+                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Сложность CC ≥ 10?</div>
+                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Функция ≥ 60 строк?</div>
+                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Параметров ≥ 5?</div>
+                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">+ 10 других правил</div>
+              </div>
+              <div class="fc-down">↓</div>
+              <div class="fc-row" style="width:100%;gap:4px;">
+                <div class="fc-node accent-node" style="flex:1;font-size:10px;">Паттерн найден<br />→ имя + объяснение
+                </div>
+                <div style="font-size:12px;color:var(--accent);align-self:center;padding:0 4px;">|</div>
+                <div class="fc-node" style="flex:1;font-size:10px;">Запах не найден<br />→ файл пропускается</div>
+              </div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Выбор наиболее сложного фрагмента для рефакторинга</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;flex:1;">
+            <div class="card">
+              <h3 style="margin-bottom:8px;font-size:13px;">15 паттернов запахов кода</h3>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Пустой catch</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Глуб. вложенность</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Высокий CC</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">God Function</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Длинный метод</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Много параметров</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Мёртвый код</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Закомм. код</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Магич. числа</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Дублирование</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Много return</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Большой класс</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Именование</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Feature Envy</span>
+                </div>
+                <div class="pi" style="padding:6px 8px;">
+                  <div class="dot"></div><span style="font-size:10px;">Избыточный код</span>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:6px;font-size:13px;">Приоритет проверок</h3>
+              <p style="font-size:12px;line-height:1.6;">Паттерны проверяются в порядке приоритета — первый найденный
+                определяет тип рефакторинга. Фрагмент выбирается по оценке: длина + цикломатическая сложность × 3</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 9. Датасет и обучение ═══ -->
+    <div class="slide" id="s9">
+      <div class="content">
+        <div>
+          <div class="slide-label">Данные и модель</div>
+          <h2>Датасет и дообучение CodeT5</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Сбор датасета</h3>
+              <ul class="sl">
+                <li>PyDriller — обход commit-истории 18 репозиториев</li>
+                <li>Пары методов: код до коммита → код после</li>
+                <li>Фильтр: 10–200 строк, изменение ≥ 20%</li>
+                <li>Django, Flask, React, Vue, Gin, Spring, Guava, axios…</li>
+              </ul>
+            </div>
+            <div class="g2">
+              <div class="stat-block"><span class="stat-val">18</span><span class="stat-label">репозиториев</span></div>
+              <div class="stat-block"><span class="stat-val">4</span><span class="stat-label">языка: Python, JS, Go,
+                  Java</span></div>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Формат обучения</h3>
+              <pre style="font-size:11px;">input:  "Refactor python: {code_before}"
+target: {code_after}</pre>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Параметры дообучения</h3>
+              <ul class="sl">
+                <li>Базовая модель: Salesforce/codet5-base (220M)</li>
+                <li>10 эпох, lr = 5e-5, cosine scheduler</li>
+                <li>fp16, batch 8, early stopping (patience 3)</li>
+                <li>max_input = 512, max_target = 256 токенов</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Генерация (инференс)</h3>
+              <ul class="sl">
+                <li>Beam search, num_beams = 4</li>
+                <li>no_repeat_ngram_size = 3</li>
+                <li>Уверенность — среднее softmax(p_t) по токенам</li>
+                <li>Проверка вывода: mojibake, длина, ASCII-доля</li>
+              </ul>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <span class="tag">Python</span><span class="tag">JavaScript</span>
+              <span class="tag">Go</span><span class="tag">Java</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 10. Алгоритм рефакторинга ═══ -->
+    <div class="slide" id="s10">
+      <div class="content">
+        <div>
+          <div class="slide-label">Алгоритм</div>
+          <h2>Алгоритм ML-рефакторинга</h2>
+          <div class="divider"></div>
+        </div>
+        <div style="display:flex;gap:16px;width:100%;align-items:start;">
+          <!-- вертикальный flowchart по центру -->
+          <div class="diagram-box" style="flex:1.1;">
+            <div class="fc">
+              <div class="fc-node start">Запрос на рефакторинг (фрагмент, язык, позиция в файле)</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Формирование запроса к модели:<br /><span
+                  style="font-family:monospace;font-size:10px;">"Refactor python: {код фрагмента}"</span></div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Токенизация (до 512 токенов)</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node accent-node">Генерация рефакторинга моделью CodeT5</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Декодирование результата в текст</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Проверка качества вывода<br /><span
+                  style="font-size:9.5px;color:var(--muted);">(кодировка, длина, доля ASCII-символов)</span></div>
+              <div class="fc-down">↓</div>
+              <!-- ветка -->
+              <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px;width:100%;align-items:center;">
+                <div class="fc-node" style="font-size:10px;background:var(--dangerBg,#fef2f2);border-color:#fca5a5;">
+                  Вывод некорректен<br />→ возврат исходного кода</div>
+                <div style="font-size:11px;color:var(--muted);text-align:center;">|</div>
+                <div class="fc-node accent-node" style="font-size:10px;">Вывод корректен</div>
+              </div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Вставка рефакторинга на место фрагмента в файле</div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node accent-node">Расчёт показателя уверенности модели</div>
+            </div>
+          </div>
+          <!-- правая колонка с деталями -->
+          <div style="display:flex;flex-direction:column;gap:10px;flex:0.9;">
+            <div class="card">
+              <h3 style="margin-bottom:8px;font-size:13px;">Выбор фрагмента для рефакторинга</h3>
+              <ul class="sl">
+                <li>При файле более 40 строк — выбирается наиболее сложный фрагмент</li>
+                <li>Python: обход дерева разбора, оценка = строки + CC × 3</li>
+                <li>JS / Go: поиск функций, выбор самой длинной</li>
+                <li>Ограничение фрагмента — 60 строк</li>
+                <li>Позиция фрагмента сохраняется для вставки обратно</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:8px;font-size:13px;">Показатель уверенности</h3>
+              <p style="font-size:12px;line-height:1.6;">Для каждого сгенерированного токена вычисляется вероятность по
+                функции softmax. Уверенность — среднее этих вероятностей. Чем выше значение, тем надёжнее предложенный
+                рефакторинг.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 11. Стек технологий ═══ -->
+    <div class="slide" id="s11">
+      <div class="content">
+        <div>
+          <div class="slide-label">Технологии</div>
+          <h2>Средства разработки</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g3 stagger">
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <p class="bold"
+              style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">
+              ML / AI</p>
+            <div class="tb">
+              <div class="dot" style="background:#3776ab;"></div>Python 3.11
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#ee4c2c;"></div>PyTorch 2.x
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#ffbd45;"></div>HuggingFace Transformers
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#009688;"></div>FastAPI + uvicorn
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#0099aa;"></div>CodeT5-base (220M)
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#6366f1;"></div>PyDriller (сбор данных)
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <p class="bold"
+              style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">
+              Backend</p>
+            <div class="tb">
+              <div class="dot" style="background:#00add8;"></div>Go 1.22
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#003b57;"></div>SQLite + go-sqlite3
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#f05033;"></div>go-git (клонирование)
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#e74c3c;"></div>AES-256-GCM
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#2ecc71;"></div>GitHub OAuth2
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#0099aa;"></div>SSE стриминг
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <p class="bold"
+              style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">
+              Frontend / Ops</p>
+            <div class="tb">
+              <div class="dot" style="background:#61dafb;"></div>React 18 + Vite
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#38bdf8;"></div>Tailwind CSS
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#1e1e1e;"></div>Monaco Editor (Diff)
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#0db7ed;"></div>Docker Compose
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#009639;"></div>nginx (proxy + CSP)
+            </div>
+            <div class="tb">
+              <div class="dot" style="background:#f97316;"></div>Kaggle (обучение)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 12. REST API ═══ -->
+    <div class="slide" id="s12">
+      <div class="content">
+        <div>
+          <div class="slide-label">API</div>
+          <h2>REST API системы</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <p class="bold" style="color:var(--accent);font-size:13px;">Go Backend (порт 8080)</p>
+            <div class="card" style="padding:14px 18px;">
+              <ul class="sl">
+                <li><code>POST /api/analyze</code> — запустить анализ репозитория</li>
+                <li><code>GET  /api/analyze/progress</code> — SSE прогресс</li>
+                <li><code>GET  /api/history</code> — история анализов</li>
+                <li><code>GET  /api/analysis/{id}</code> — результаты анализа</li>
+                <li><code>POST /api/push</code> — пуш рефакторинга в GitHub</li>
+                <li><code>POST /api/auth/github</code> — OAuth авторизация</li>
+                <li><code>GET  /api/auth/me</code> — текущий пользователь</li>
+                <li><code>POST /api/auth/logout</code> — выход</li>
+              </ul>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <p class="bold" style="color:var(--accent);font-size:13px;">ML Service (порт 8001, внутренний)</p>
+            <div class="card" style="padding:14px 18px;">
+              <ul class="sl">
+                <li><code>POST /detect</code> — определение паттерна запаха кода (AST/regex)</li>
+                <li><code>POST /refactor</code> — генерация рефакторинга через CodeT5</li>
+                <li><code>GET  /health</code> — проверка статуса ML-сервиса</li>
+              </ul>
+            </div>
+            <pre style="font-size:11px;">POST /detect
+{ "filename": "main.py", "code": "..." }
+→ { "pattern": "Deep Nesting",
+    "fragment": "...", "fragment_offset": 5,
+    "complexity_before": 8 }
+
+POST /refactor
+{ "language": "python", "fragment": "...",
+  "original_code": "...", "fragment_offset": 5 }
+→ { "refactored_code": "...",
+    "confidence": 0.83, "complexity_after": 3 }</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 13. Демонстрация — главная страница ═══ -->
+    <div class="slide" id="s13">
+      <div class="content">
+        <div>
+          <div class="slide-label">Демонстрация</div>
+          <h2>Интерфейс — ввод репозитория и анализ</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="card" style="border-top:3px solid var(--accent);">
+              <h3 style="margin-bottom:10px;">Режимы ввода</h3>
+              <ul class="sl">
+                <li>URL публичного Git-репозитория</li>
+                <li>Загрузка ZIP-архива проекта</li>
+                <li>Авторизация через GitHub OAuth</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:10px;">Прогресс анализа (SSE)</h3>
+              <ul class="sl">
+                <li>Текущий файл и статус</li>
+                <li>Счётчик обработанных / всего</li>
+                <li>Обновление в реальном времени</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:10px;">Результаты</h3>
+              <ul class="sl">
+                <li>Карточки файлов с паттерном и языком</li>
+                <li>Поиск и фильтр по паттерну / языку</li>
+                <li>Клик → Monaco Diff Editor</li>
+              </ul>
+            </div>
+          </div>
+          <div class="diagram-box" style="display:flex;flex-direction:column;gap:10px;">
+            <div
+              style="background:var(--surfaceAlt);border:1px solid var(--border);border-radius:8px;padding:12px 16px;">
+              <p style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;">СТРОКА ВВОДА</p>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <div
+                  style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--muted);">
+                  https://github.com/user/repo</div>
+                <div
+                  style="background:var(--accent);color:#fff;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;">
+                  Анализ</div>
+              </div>
+            </div>
+            <div
+              style="background:var(--surfaceAlt);border:1px solid var(--border);border-radius:8px;padding:12px 16px;">
+              <p style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;">КАРТОЧКА ФАЙЛА</p>
+              <div
+                style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                  <span style="font-size:12px;font-weight:700;">main.py</span>
+                  <span class="tag" style="font-size:11px;background:#dbeafe;color:#1d4ed8;">Python</span>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <span class="chip" style="font-size:10px;">Глубокая вложенность</span>
+                  <span style="font-size:11px;color:var(--muted);">уверенность: 83%</span>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:8px;font-size:11px;color:var(--muted);">
+                  <span>CC: 8 → 3</span>
+                  <span>•</span>
+                  <span>↓ снижение сложности</span>
+                </div>
+              </div>
+            </div>
+            <div class="hl" style="font-size:12px;">
+              Поиск по файлам + фильтр по паттерну и языку
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 14. Демонстрация — Diff Editor ═══ -->
+    <div class="slide" id="s14">
+      <div class="content">
+        <div>
+          <div class="slide-label">Демонстрация</div>
+          <h2>Diff-редактор и пример рефакторинга</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div>
+              <p style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px;letter-spacing:.05em;">ДО —
+                Глубокая вложенность (CC = 6)</p>
+              <pre>def process(data, flag, n,
+            timeout, retry):
+    result = []
+    for i in range(n):
+        if flag == True:
+            if timeout > 30:
+                if retry > 3:
+                    for item in data:
+                        if item > 0:
+                            result.append(
+                                item * 2)
+    return result</pre>
+            </div>
+            <div>
+              <p style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:6px;letter-spacing:.05em;">ПОСЛЕ
+                — CodeT5 рефакторинг (CC = 2)</p>
+              <pre>def process(data, flag, n,
+            timeout, retry):
+    if not flag or timeout &lt;= 30:
+        return []
+    if retry &lt;= 3:
+        return []
+    return [item * 2
+            for item in data
+            if item > 0]</pre>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="card" style="border-top:3px solid var(--accent);">
+              <h3 style="margin-bottom:10px;">Monaco Diff Editor</h3>
+              <ul class="sl">
+                <li>VS Code движок — подсветка синтаксиса</li>
+                <li>Построчное сравнение до/после</li>
+                <li>Светлая и тёмная тема</li>
+                <li>Копирование рефакторинга одной кнопкой</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:10px;">Действия с результатом</h3>
+              <ul class="sl">
+                <li>Push изменений напрямую в GitHub</li>
+                <li>Скачать рефакторинг как файл</li>
+                <li>Сохранение в истории анализов</li>
+              </ul>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <span class="tag" style="background:var(--greenBg);color:#065f46;border:1px solid var(--greenBdr);">CC: 6
+                → 2</span>
+              <span class="tag" style="background:var(--greenBg);color:#065f46;border:1px solid var(--greenBdr);">Guard
+                clause</span>
+              <span class="tag" style="background:var(--greenBg);color:#065f46;border:1px solid var(--greenBdr);">List
+                comprehension</span>
+              <span class="tag"
+                style="background:var(--greenBg);color:#065f46;border:1px solid var(--greenBdr);">Уверенность:
+                83%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 15. Статистика и история ═══ -->
+    <div class="slide" id="s15">
+      <div class="content">
+        <div>
+          <div class="slide-label">Демонстрация</div>
+          <h2>Статистика анализа и история</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="card" style="border-top:3px solid var(--accent);">
+              <h3 style="margin-bottom:10px;">StatsPanel — статистика по репозиторию</h3>
+              <ul class="sl">
+                <li>Круговая диаграмма паттернов</li>
+                <li>Топ паттернов по частоте</li>
+                <li>Распределение по языкам</li>
+                <li>Средняя уверенность и снижение CC</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 style="margin-bottom:10px;">История анализов</h3>
+              <ul class="sl">
+                <li>Все прошлые анализы текущего пользователя</li>
+                <li>URL репозитория, дата, число файлов</li>
+                <li>Загрузка результатов из истории</li>
+              </ul>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="diagram-box">
+              <p style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:10px;">ПРИМЕР СТАТИСТИКИ
+                РЕПОЗИТОРИЯ</p>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:90px;font-size:11px;color:var(--sub);">Глубокая вложенн.</div>
+                  <div style="flex:1;height:14px;background:var(--border);border-radius:99px;overflow:hidden;">
+                    <div style="width:38%;height:100%;background:var(--accent);border-radius:99px;"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--sub);min-width:28px;">38%</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:90px;font-size:11px;color:var(--sub);">Магич. числа</div>
+                  <div style="flex:1;height:14px;background:var(--border);border-radius:99px;overflow:hidden;">
+                    <div style="width:24%;height:100%;background:var(--accent);border-radius:99px;opacity:.8;"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--sub);">24%</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:90px;font-size:11px;color:var(--sub);">Длинный метод</div>
+                  <div style="flex:1;height:14px;background:var(--border);border-radius:99px;overflow:hidden;">
+                    <div style="width:18%;height:100%;background:var(--accent);border-radius:99px;opacity:.6;"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--sub);">18%</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:90px;font-size:11px;color:var(--sub);">God Function</div>
+                  <div style="flex:1;height:14px;background:var(--border);border-radius:99px;overflow:hidden;">
+                    <div style="width:12%;height:100%;background:var(--accent);border-radius:99px;opacity:.5;"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--sub);">12%</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <div style="width:90px;font-size:11px;color:var(--sub);">Прочие</div>
+                  <div style="flex:1;height:14px;background:var(--border);border-radius:99px;overflow:hidden;">
+                    <div style="width:8%;height:100%;background:var(--muted);border-radius:99px;opacity:.5;"></div>
+                  </div>
+                  <span style="font-size:11px;color:var(--sub);">8%</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-top:14px;flex-wrap:wrap;">
+                <div class="stat-block" style="flex:1;padding:10px 14px;">
+                  <span class="stat-val" style="font-size:22px;">12</span>
+                  <span class="stat-label">файлов найдено</span>
+                </div>
+                <div class="stat-block" style="flex:1;padding:10px 14px;">
+                  <span class="stat-val" style="font-size:22px;">76%</span>
+                  <span class="stat-label">ср. уверенность</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 16. Ограничения ═══ -->
+    <div class="slide" id="s16">
+      <div class="content">
+        <div>
+          <div class="slide-label">Анализ</div>
+          <h2>Ограничения и решённые технические проблемы</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g2 stagger" style="align-items:start;">
+          <div class="card">
+            <h3 style="margin-bottom:12px;">Ограничения модели</h3>
+            <ul class="sl">
+              <li>Контекстное окно 512 токенов — решено фрагментацией</li>
+              <li>Seq2seq не гарантирует компилируемость вывода</li>
+              <li>Качество зависит от похожести кода с обучающей выборкой</li>
+              <li>Не поддерживаются языки вне датасета (Ruby, Rust и др.)</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:12px;">Решённые технические проблемы</h3>
+            <ul class="sl">
+              <li>Формат запроса к модели не совпадал с форматом обучения — исправлено, качество рефакторинга значительно выросло</li>
+              <li>Токены доступа хранились в открытом виде — переведены на шифрование AES-256-GCM</li>
+              <li>После перезапуска контейнеров сервис возвращал ошибку — решено через динамический DNS-резолвер в nginx</li>
+            </ul>
+          </div>
+        </div>
+        <div class="hl" style="width:100%;">
+          Система предоставляет предложения — финальное решение о применении остаётся за разработчиком
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 17. Тестирование ═══ -->
+    <div class="slide" id="s17">
+      <div class="content">
+        <div>
+          <div class="slide-label">Тестирование</div>
+          <h2>Результаты тестирования системы</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g3 stagger">
+          <div class="stat-block"><span class="stat-val">15/15</span><span class="stat-label">паттернов детектируются
+              корректно</span></div>
+          <div class="stat-block"><span class="stat-val">4</span><span class="stat-label">языка программирования
+              поддерживаются</span></div>
+          <div class="stat-block"><span class="stat-val">100%</span><span class="stat-label">файлов репозитория проходят
+              анализ</span></div>
+        </div>
+        <div class="g2 stagger" style="align-items:start;">
+          <div class="card">
+            <h3 style="margin-bottom:10px;">Функциональное тестирование</h3>
+            <ul class="sl">
+              <li>Анализ реальных репозиториев (django, flask, gin)</li>
+              <li>Все 15 паттернов верно распознаются</li>
+              <li>SSE прогресс корректно передаётся в UI</li>
+              <li>Push в GitHub создаёт корректный коммит</li>
+              <li>История сохраняется и загружается</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3 style="margin-bottom:10px;">Тестирование модели</h3>
+            <ul class="sl">
+              <li>Детекция мусорного вывода: mojibake, длина, ASCII-доля</li>
+              <li>При мусоре возвращается исходный код, confidence = 0</li>
+              <li>Сложность кода снижается в большинстве случаев</li>
+              <li>Уверенность отражает реальную вероятность модели</li>
+              <li>Фрагментация корректно собирает файл обратно</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 18. Результаты ═══ -->
+    <div class="slide" id="s18">
+      <div class="content">
+        <div>
+          <div class="slide-label">Результаты</div>
+          <h2>Достигнутые результаты</h2>
+          <div class="divider"></div>
+        </div>
+        <div class="g3 stagger">
+          <div class="stat-block"><span class="stat-val">18</span><span class="stat-label">репозиториев в
+              датасете</span></div>
+          <div class="stat-block"><span class="stat-val">15</span><span class="stat-label">паттернов запахов кода</span>
+          </div>
+          <div class="stat-block"><span class="stat-val">4</span><span class="stat-label">языка программирования</span>
+          </div>
+        </div>
+        <div class="g2 stagger" style="align-items:start;">
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="ci">
+              <div class="ci-icon">✓</div>
+              <p>Разработан сервис с авторизацией через GitHub OAuth и подключением к репозиториям</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">✓</div>
+              <p>Дообучена модель CodeT5 на реальных commit-парах из 18 открытых репозиториев</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">✓</div>
+              <p>Реализован двухэтапный пайплайн: детекция паттернов + генерация рефакторинга</p>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="ci">
+              <div class="ci-icon">✓</div>
+              <p>Публикация изменений в репозиторий отдельной git-веткой</p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">✓</div>
+              <p>Сервис развёртывается одной командой <code>docker compose up</code></p>
+            </div>
+            <div class="ci">
+              <div class="ci-icon">✓</div>
+              <p>Визуализация изменений в редакторе с подсветкой синтаксиса</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 19. Заключение ═══ -->
+    <div class="slide" id="s19">
+      <div class="content-c">
+        <div class="title-card">
+          <div class="chip" style="margin-bottom:18px;">Заключение</div>
+          <h2 style="margin-bottom:12px;">Сервис разработан и готов к использованию</h2>
+          <div class="divider" style="margin:14px auto;"></div>
+          <p style="max-width:600px;margin:0 auto 22px;font-size:14px;line-height:1.7;">
+            Разработан сервис автоматического рефакторинга legacy-кода на основе ML-анализа паттернов изменений.
+            Система объединяет статический AST-анализ и нейросетевую генерацию исправлений
+            на базе дообученной модели CodeT5. Все поставленные задачи выполнены.
+          </p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:22px;" class="stagger">
+            <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
+              <span class="stat-val" style="font-size:24px;">15</span>
+              <span class="stat-label">паттернов запахов кода</span>
+            </div>
+            <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
+              <span class="stat-val" style="font-size:24px;">4</span>
+              <span class="stat-label">языка программирования</span>
+            </div>
+            <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
+              <span class="stat-val" style="font-size:24px;">18</span>
+              <span class="stat-label">репозиториев в датасете</span>
+            </div>
+            <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
+              <span class="stat-val" style="font-size:24px;">3</span>
+              <span class="stat-label">Docker-контейнера</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 20. Спасибо за внимание ═══ -->
+    <div class="slide" id="s20">
+      <div class="content-c">
+        <div class="title-card" style="padding:52px 60px;">
+          <p
+            style="font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:24px;">
+            Выпускная квалификационная работа</p>
+          <h1 style="font-size:42px;margin-bottom:20px;line-height:1.2;">Спасибо за внимание!</h1>
+          <div class="divider" style="margin:20px auto;width:60px;height:4px;"></div>
+          <p
+            style="font-size:15px;color:var(--sub);margin-bottom:32px;line-height:1.7;max-width:480px;margin-left:auto;margin-right:auto;">
+            Готов ответить на вопросы
+          </p>
+          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+            <div class="author-card">
+              Студент группы ВПР43<br /><strong>Фролов К.М.</strong>
+            </div>
+            <div class="author-card">
+              Руководитель<br /><strong>Атаян А.М.</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /slides -->
+
+  <nav>
+    <button id="btn-prev" onclick="go(-1)" title="← Назад">‹</button>
+    <span id="counter">1 / 20</span>
+    <button id="btn-next" onclick="go(1)" title="→ Вперёд">›</button>
+  </nav>
+
+  <script>
+    const TOTAL = 20;
+    let cur = 1;
+    function go(d) {
+      const n = cur + d;
+      if (n < 1 || n > TOTAL) return;
+      document.getElementById('s' + cur).classList.remove('active');
+      cur = n;
+      document.getElementById('s' + cur).classList.add('active');
+      document.getElementById('counter').textContent = cur + ' / ' + TOTAL;
+      document.getElementById('slide-num').textContent = cur + ' / ' + TOTAL;
+      document.getElementById('progress-bar').style.width = (cur / TOTAL * 100) + '%';
+      document.getElementById('btn-prev').disabled = cur === 1;
+      document.getElementById('btn-next').disabled = cur === TOTAL;
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); go(1); }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); go(-1); }
+      if (e.key === 'Home') go(1 - cur);
+      if (e.key === 'End') go(TOTAL - cur);
+    });
+    go(0);
+  </script>
+</body>
+
+</html>
