@@ -1,3 +1,6 @@
+# Model weights - download separately from HuggingFace
+backend-python/model/
+
 # Local env overrides (may contain secrets)
 .env.local
 .env.*.local
