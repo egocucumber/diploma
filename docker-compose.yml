@@ -1,5 +1,21 @@
 services:
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: diploma
+      POSTGRES_USER: diploma
+      POSTGRES_PASSWORD: diploma
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diploma -d diploma"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   ml-service:
     build: ./backend-python
     container_name: ml-service
@@ -8,8 +24,11 @@ services:
     environment:
       - MODEL_DIR=/app/model
       - ADAPTER_DIR=/app/adapter
+      - CLASSIFIER_DIR=/app/classifier
+      - GROQ_API_KEY=${GROQ_API_KEY}
     volumes:
       - ./backend-python/model:/app/model:ro
+      - ./backend-python/classifier:/app/classifier:ro
     deploy:
       resources:
         reservations:
@@ -19,11 +38,11 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "python3.11", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
 
   go-backend:
     build: ./backend-go
@@ -32,16 +51,16 @@ services:
       - "${GO_BACKEND_PORT:-8080}:8080"
     environment:
       - PYTHON_SERVICE_URL=${PYTHON_SERVICE_URL:-http://ml-service:8001}
-      - DB_PATH=${DB_PATH:-/data/history.db}
+      - DATABASE_URL=postgres://diploma:diploma@postgres:5432/diploma?sslmode=disable
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
       - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
       - COOKIE_SECURE=${COOKIE_SECURE:-false}
-    volumes:
-      - db-data:/data
     depends_on:
       ml-service:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -64,4 +83,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  db-data:
+  pg-data:

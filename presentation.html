@@ -841,12 +841,13 @@
           </h1>
           <div class="divider" style="margin:16px auto;"></div>
           <p style="font-size:14px;max-width:560px;margin:0 auto 24px;">
-            Автоматическое обнаружение запахов кода и генерация предложений по рефакторингу<br />
-            на основе модели CodeT5
+            ML-детекция запахов кода (CodeBERT) и автоматическая генерация рефакторинга<br />
+            на основе дообученной модели StarCoder2-3B с LoRA-адаптером
           </p>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:20px;">
-            <span class="tag">CodeT5</span><span class="tag">FastAPI</span>
-            <span class="tag">Go</span><span class="tag">React</span><span class="tag">Docker</span>
+            <span class="tag">CodeBERT</span><span class="tag">StarCoder2</span>
+            <span class="tag">FastAPI</span><span class="tag">Go</span>
+            <span class="tag">React</span><span class="tag">Docker</span>
           </div>
           <div class="author-block">
             <div class="author-card">
@@ -1057,23 +1058,23 @@
           </div>
           <div class="pipe-arrow">→</div>
           <div class="pipe-step">
-            <div class="pipe-icon">AST</div>
+            <div class="pipe-icon">ML</div>
             <h3 style="font-size:13px;margin-bottom:4px;">Детекция</h3>
-            <p style="font-size:11px;">AST + regex, 15 паттернов, /detect</p>
+            <p style="font-size:11px;">CodeBERT (primary) + AST fallback, /detect</p>
           </div>
           <div class="pipe-arrow">→</div>
           <div class="pipe-step">
-            <div class="pipe-icon">ML</div>
+            <div class="pipe-icon">SC2</div>
             <h3 style="font-size:13px;margin-bottom:4px;">Рефакторинг</h3>
-            <p style="font-size:11px;">CodeT5 генерация рефакторинга, /refactor</p>
+            <p style="font-size:11px;">StarCoder2+LoRA, паттерн-специфичный фрагмент, /refactor</p>
           </div>
         </div>
         <div class="g3 stagger">
           <div class="card">
             <h3 style="margin-bottom:8px;">Контейнеризация</h3>
             <ul class="sl">
-              <li>3 Docker-контейнера: React UI, Go Backend, ML-сервис</li>
-              <li>nginx развёрнут отдельно как reverse proxy</li>
+              <li>4 Docker-контейнера: React+nginx, Go Backend, ML-сервис, PostgreSQL</li>
+              <li>ML-сервис загружает CodeBERT (детекция) и StarCoder2+LoRA (рефакторинг)</li>
               <li>Запуск одной командой: <code>docker compose up</code></li>
               <li>ML-сервис изолирован — недоступен извне</li>
             </ul>
@@ -1091,7 +1092,7 @@
             <ul class="sl">
               <li>SSE стриминг прогресса анализа</li>
               <li>Файл за файлом без блокировки UI</li>
-              <li>История в SQLite с миграциями</li>
+              <li>История в PostgreSQL (отдельный контейнер)</li>
             </ul>
           </div>
         </div>
@@ -1103,57 +1104,61 @@
       <div class="content">
         <div>
           <div class="slide-label">База данных</div>
-          <h2>Схема базы данных (SQLite)</h2>
+          <h2>Схема базы данных (PostgreSQL)</h2>
           <div class="divider"></div>
         </div>
         <div class="diagram-box">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;" class="stagger">
             <div class="db-table">
               <div class="db-title">users</div>
-              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
-              <div class="db-row">github_id TEXT</div>
+              <div class="db-row"><span class="key">PK</span> id SERIAL</div>
+              <div class="db-row">github_id BIGINT UNIQUE</div>
               <div class="db-row">login TEXT</div>
               <div class="db-row">name TEXT</div>
               <div class="db-row">avatar_url TEXT</div>
-              <div class="db-row">created_at DATETIME</div>
+              <div class="db-row">access_token TEXT</div>
+              <div class="db-row">created_at TIMESTAMPTZ</div>
+              <div class="db-row">updated_at TIMESTAMPTZ</div>
             </div>
             <div class="db-table">
               <div class="db-title">sessions</div>
-              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row"><span class="key">PK</span> token TEXT</div>
               <div class="db-row"><span class="fk">FK</span> user_id INTEGER</div>
-              <div class="db-row">token_enc TEXT</div>
-              <div class="db-row">expires_at DATETIME</div>
-              <div class="db-row">created_at DATETIME</div>
+              <div class="db-row">expires_at TIMESTAMPTZ</div>
             </div>
             <div class="db-table">
               <div class="db-title">analyses</div>
-              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row"><span class="key">PK</span> id SERIAL</div>
               <div class="db-row"><span class="fk">FK</span> user_id INTEGER</div>
               <div class="db-row">repo_url TEXT</div>
               <div class="db-row">status TEXT</div>
               <div class="db-row">total_files INTEGER</div>
-              <div class="db-row">created_at DATETIME</div>
+              <div class="db-row">result_count INTEGER</div>
+              <div class="db-row">started_at TIMESTAMPTZ</div>
+              <div class="db-row">finished_at TIMESTAMPTZ</div>
             </div>
             <div class="db-table">
               <div class="db-title">results</div>
-              <div class="db-row"><span class="key">PK</span> id INTEGER</div>
+              <div class="db-row"><span class="key">PK</span> id SERIAL</div>
               <div class="db-row"><span class="fk">FK</span> analysis_id INTEGER</div>
-              <div class="db-row">filename TEXT</div>
-              <div class="db-row">language TEXT</div>
+              <div class="db-row">file_name TEXT</div>
               <div class="db-row">pattern TEXT</div>
-              <div class="db-row">explanation TEXT</div>
+              <div class="db-row">confidence REAL</div>
               <div class="db-row">original_code TEXT</div>
               <div class="db-row">refactored_code TEXT</div>
-              <div class="db-row">confidence REAL</div>
-              <div class="db-row">complexity_before INT</div>
-              <div class="db-row">complexity_after INT</div>
+              <div class="db-row">explanation TEXT</div>
+              <div class="db-row">language TEXT</div>
+              <div class="db-row">lines_original INTEGER</div>
+              <div class="db-row">lines_refactored INTEGER</div>
+              <div class="db-row">complexity_before INTEGER</div>
+              <div class="db-row">complexity_after INTEGER</div>
             </div>
           </div>
           <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
             <span class="tag" style="font-size:11px;">users → sessions (1:N, CASCADE)</span>
-            <span class="tag" style="font-size:11px;">users → analyses (1:N, CASCADE)</span>
+            <span class="tag" style="font-size:11px;">users → analyses (1:N, SET NULL)</span>
             <span class="tag" style="font-size:11px;">analyses → results (1:N, CASCADE)</span>
-            <span class="tag" style="font-size:11px;">Миграции при старте приложения</span>
+            <span class="tag" style="font-size:11px;">CREATE TABLE IF NOT EXISTS при старте</span>
           </div>
         </div>
       </div>
@@ -1190,26 +1195,26 @@
                 <div class="fc-node" style="flex:1;">Clean Code<br />→ пропустить GPU</div>
               </div>
               <div class="fc-down">↓</div>
-              <div class="fc-node">Сохранение в SQLite</div>
+              <div class="fc-node">Сохранение в PostgreSQL</div>
               <div class="fc-down">↓</div>
               <div class="fc-node accent-node">SSE → результаты в UI</div>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <div class="card">
-              <h3 style="margin-bottom:8px;">Двойной режим сканирования</h3>
+              <h3 style="margin-bottom:8px;">Приоритет commit-истории (tryCommitFix)</h3>
               <ul class="sl">
-                <li>Commit-история: методы изменились в коммите = повышенный шанс запаха</li>
-                <li>Файловая система: все поддерживаемые файлы проекта</li>
-                <li>Дедупликация по имени файла</li>
+                <li>Для каждой пары до/после из коммита вызывается /detect</li>
+                <li>Если реальный фикс снижает сложность — используется как рефакторинг (confidence=0.92)</li>
+                <li>Иначе fallback на StarCoder2+LoRA</li>
               </ul>
             </div>
             <div class="card">
               <h3 style="margin-bottom:8px;">Преимущества разделения агентов</h3>
               <ul class="sl">
-                <li>/detect — без GPU, быстрый (AST + regex)</li>
+                <li>CodeBERT-детекция работает на CPU без GPU</li>
                 <li>Clean Code пропускает /refactor — экономия ресурсов</li>
-                <li>Фрагментация: модель видит целевой фрагмент, не весь файл</li>
+                <li>Паттерн-специфичный фрагмент: для каждого запаха вырезается минимальный контекст</li>
               </ul>
             </div>
           </div>
@@ -1222,90 +1227,56 @@
       <div class="content">
         <div>
           <div class="slide-label">Детекция</div>
-          <h2>Алгоритм детекции паттернов запахов кода</h2>
+          <h2>ML-детекция паттернов: CodeBERT + статический анализ</h2>
           <div class="divider"></div>
         </div>
         <div class="g2" style="align-items:start;">
           <div class="diagram-box" style="flex:1;">
             <div class="fc">
-              <div class="fc-node start">Код файла</div>
+              <div class="fc-node start">Код фрагмента (/detect)</div>
               <div class="fc-down">↓</div>
-              <div class="fc-node accent-node">Парсинг AST (Python) / Regex (JS/Go/Java)</div>
-              <div class="fc-down">↓</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%;">
-                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Пустой catch?</div>
-                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Вложенность ≥ 4?</div>
-                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Сложность CC ≥ 10?</div>
-                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Функция ≥ 60 строк?</div>
-                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">Параметров ≥ 5?</div>
-                <div class="fc-node" style="font-size:9.5px;padding:4px 8px;">+ 10 других правил</div>
+              <div class="fc-node accent-node" style="background:var(--accentLt);border-color:var(--accent);">
+                <strong>CodeBERT</strong> — дообученный классификатор<br />
+                <span style="font-size:9.5px;color:var(--muted);">microsoft/codebert-base, 15 классов, fine-tuned</span>
               </div>
               <div class="fc-down">↓</div>
               <div class="fc-row" style="width:100%;gap:4px;">
-                <div class="fc-node accent-node" style="flex:1;font-size:10px;">Паттерн найден<br />→ имя + объяснение
-                </div>
+                <div class="fc-node accent-node" style="flex:1;font-size:10px;">Паттерн ≠ Clean Code<br />→ используем результат</div>
                 <div style="font-size:12px;color:var(--accent);align-self:center;padding:0 4px;">|</div>
-                <div class="fc-node" style="flex:1;font-size:10px;">Запах не найден<br />→ файл пропускается</div>
+                <div class="fc-node" style="flex:1;font-size:10px;">Clean Code<br />→ fallback</div>
               </div>
               <div class="fc-down">↓</div>
-              <div class="fc-node">Выбор наиболее сложного фрагмента для рефакторинга</div>
+              <div class="fc-node">Статический анализатор (AST + regex)<br /><span style="font-size:9.5px;color:var(--muted);">Резервный: 15 правил, порог-ориентированный</span></div>
+              <div class="fc-down">↓</div>
+              <div class="fc-row" style="width:100%;gap:4px;">
+                <div class="fc-node accent-node" style="flex:1;font-size:10px;">Паттерн найден<br />→ имя + объяснение</div>
+                <div style="font-size:12px;color:var(--accent);align-self:center;padding:0 4px;">|</div>
+                <div class="fc-node" style="flex:1;font-size:10px;">Clean Code<br />→ пропустить /refactor</div>
+              </div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Паттерн-специфичный фрагмент для рефакторинга</div>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:10px;flex:1;">
             <div class="card">
-              <h3 style="margin-bottom:8px;font-size:13px;">15 паттернов запахов кода</h3>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Пустой catch</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Глуб. вложенность</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Высокий CC</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">God Function</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Длинный метод</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Много параметров</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Мёртвый код</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Закомм. код</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Магич. числа</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Дублирование</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Много return</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Большой класс</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Именование</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Feature Envy</span>
-                </div>
-                <div class="pi" style="padding:6px 8px;">
-                  <div class="dot"></div><span style="font-size:10px;">Избыточный код</span>
-                </div>
-              </div>
+              <h3 style="margin-bottom:8px;font-size:13px;">Обучение CodeBERT-классификатора</h3>
+              <ul class="sl">
+                <li>Базовая модель: microsoft/codebert-base (125M параметров)</li>
+                <li>Датасет: 6 237 примеров из 13 репозиториев</li>
+                <li>Размечено статическим анализатором + синтетика для редких классов</li>
+                <li>15 классов, взвешенный CrossEntropy (балансировка)</li>
+                <li>5 эпох, lr=2e-5, batch=16, max_length=256</li>
+                <li>Точность (weighted F1): <strong>66%</strong></li>
+              </ul>
             </div>
             <div class="card">
-              <h3 style="margin-bottom:6px;font-size:13px;">Приоритет проверок</h3>
-              <p style="font-size:12px;line-height:1.6;">Паттерны проверяются в порядке приоритета — первый найденный
-                определяет тип рефакторинга. Фрагмент выбирается по оценке: длина + цикломатическая сложность × 3</p>
+              <h3 style="margin-bottom:8px;font-size:13px;">Паттерн-специфичный фрагмент</h3>
+              <ul class="sl">
+                <li>Long Parameter List → только сигнатура функции (~8 строк)</li>
+                <li>Deep Nesting → блок вокруг самого глубокого уровня</li>
+                <li>Empty Catch / Commented Code → 10 строк контекста</li>
+                <li>God Function / Long Method → до 60 строк наиболее сложной функции</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -1316,54 +1287,67 @@
     <div class="slide" id="s9">
       <div class="content">
         <div>
-          <div class="slide-label">Данные и модель</div>
-          <h2>Датасет и дообучение CodeT5</h2>
+          <div class="slide-label">Данные и модели</div>
+          <h2>Две обученные ML-модели системы</h2>
           <div class="divider"></div>
         </div>
         <div class="g2" style="align-items:start;">
-          <div style="display:flex;flex-direction:column;gap:12px;">
+          <!-- StarCoder2 -->
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="hl" style="justify-content:center;">StarCoder2-3B + LoRA — рефакторинг</div>
             <div class="card">
-              <h3 style="margin-bottom:8px;">Сбор датасета</h3>
+              <h3 style="margin-bottom:8px;">Датасет (commit-пары)</h3>
               <ul class="sl">
-                <li>PyDriller — обход commit-истории 18 репозиториев</li>
-                <li>Пары методов: код до коммита → код после</li>
-                <li>Фильтр: 10–200 строк, изменение ≥ 20%</li>
-                <li>Django, Flask, React, Vue, Gin, Spring, Guava, axios…</li>
+                <li>52 репозитория, PyDriller, 5 языков</li>
+                <li>Пары: код до коммита → код после</li>
+                <li>Фильтр: 50–1500 символов, изменение 10–80%</li>
               </ul>
             </div>
-            <div class="g2">
-              <div class="stat-block"><span class="stat-val">18</span><span class="stat-label">репозиториев</span></div>
-              <div class="stat-block"><span class="stat-val">4</span><span class="stat-label">языка: Python, JS, Go,
-                  Java</span></div>
-            </div>
-            <div class="card">
-              <h3 style="margin-bottom:8px;">Формат обучения</h3>
-              <pre style="font-size:11px;">input:  "Refactor python: {code_before}"
-target: {code_after}</pre>
-            </div>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:12px;">
             <div class="card">
               <h3 style="margin-bottom:8px;">Параметры дообучения</h3>
               <ul class="sl">
-                <li>Базовая модель: Salesforce/codet5-base (220M)</li>
-                <li>10 эпох, lr = 5e-5, cosine scheduler</li>
-                <li>fp16, batch 8, early stopping (patience 3)</li>
-                <li>max_input = 512, max_target = 256 токенов</li>
+                <li>bigcode/starcoder2-3b (3B параметров)</li>
+                <li>LoRA r=16, α=32, 3 эпохи, lr=2e-4</li>
+                <li>fp16, batch 4 × grad_accum 8 = eff. 32</li>
+                <li>max_length=512, генерация до 512 токенов</li>
               </ul>
             </div>
             <div class="card">
-              <h3 style="margin-bottom:8px;">Генерация (инференс)</h3>
+              <h3 style="margin-bottom:8px;">Формат промпта</h3>
+              <pre style="font-size:10px;">&lt;refactor&gt;
+language: {lang}
+pattern: {паттерн}
+input:
+{code_before}
+output:
+{code_after}&lt;/refactor&gt;</pre>
+            </div>
+          </div>
+          <!-- CodeBERT -->
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div class="hl" style="justify-content:center;">CodeBERT — детекция паттернов</div>
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Датасет (классификация)</h3>
               <ul class="sl">
-                <li>Beam search, num_beams = 4</li>
-                <li>no_repeat_ngram_size = 3</li>
-                <li>Уверенность — среднее softmax(p_t) по токенам</li>
-                <li>Проверка вывода: mojibake, длина, ASCII-доля</li>
+                <li>13 репозиториев (Flask, FastAPI, Gin, Express…)</li>
+                <li>6 237 примеров, 15 классов</li>
+                <li>Разметка статическим анализатором</li>
+                <li>Синтетика для редких классов (200 примеров × 5 классов)</li>
+                <li>Балансировка весами классов (WeightedCrossEntropy)</li>
               </ul>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <span class="tag">Python</span><span class="tag">JavaScript</span>
-              <span class="tag">Go</span><span class="tag">Java</span>
+            <div class="card">
+              <h3 style="margin-bottom:8px;">Параметры дообучения</h3>
+              <ul class="sl">
+                <li>microsoft/codebert-base (125M параметров)</li>
+                <li>Classification head: 15 выходов</li>
+                <li>5 эпох, lr=2e-5, batch=16, max_length=256</li>
+                <li>EarlyStopping (patience=2), fp16</li>
+              </ul>
+            </div>
+            <div class="g2">
+              <div class="stat-block"><span class="stat-val">66%</span><span class="stat-label">weighted F1</span></div>
+              <div class="stat-block"><span class="stat-val">15</span><span class="stat-label">классов запахов</span></div>
             </div>
           </div>
         </div>
@@ -1385,11 +1369,13 @@ target: {code_after}</pre>
               <div class="fc-node start">Запрос на рефакторинг (фрагмент, язык, позиция в файле)</div>
               <div class="fc-down">↓</div>
               <div class="fc-node">Формирование запроса к модели:<br /><span
-                  style="font-family:monospace;font-size:10px;">"Refactor python: {код фрагмента}"</span></div>
+                  style="font-family:monospace;font-size:10px;">"&lt;refactor&gt; language: {lang} pattern: {паттерн} input: {код} output:"</span></div>
+              <div class="fc-down">↓</div>
+              <div class="fc-node">Проверка наличия функции в фрагменте<br /><span style="font-size:9.5px;color:var(--muted);">dict / конфиги → возврат оригинала без вызова модели</span></div>
               <div class="fc-down">↓</div>
               <div class="fc-node">Токенизация (до 512 токенов)</div>
               <div class="fc-down">↓</div>
-              <div class="fc-node accent-node">Генерация рефакторинга моделью CodeT5</div>
+              <div class="fc-node accent-node">Генерация рефакторинга моделью StarCoder2-3B (LoRA)</div>
               <div class="fc-down">↓</div>
               <div class="fc-node">Декодирование результата в текст</div>
               <div class="fc-down">↓</div>
@@ -1442,74 +1428,37 @@ target: {code_after}</pre>
         </div>
         <div class="g3 stagger">
           <div style="display:flex;flex-direction:column;gap:8px;">
-            <p class="bold"
-              style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">
-              ML / AI</p>
-            <div class="tb">
-              <div class="dot" style="background:#3776ab;"></div>Python 3.11
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#ee4c2c;"></div>PyTorch 2.x
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#ffbd45;"></div>HuggingFace Transformers
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#009688;"></div>FastAPI + uvicorn
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#0099aa;"></div>CodeT5-base (220M)
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#6366f1;"></div>PyDriller (сбор данных)
-            </div>
+            <p class="bold" style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">ML / AI</p>
+            <div class="tb"><div class="dot" style="background:#3776ab;"></div>Python 3.11</div>
+            <div class="tb"><div class="dot" style="background:#ee4c2c;"></div>PyTorch 2.4</div>
+            <div class="tb"><div class="dot" style="background:#ffbd45;"></div>HuggingFace Transformers</div>
+            <div class="tb"><div class="dot" style="background:#009688;"></div>FastAPI + uvicorn</div>
+            <div class="tb"><div class="dot" style="background:#0099aa;"></div>StarCoder2-3B + LoRA</div>
+            <div class="tb"><div class="dot" style="background:#7c3aed;"></div>CodeBERT-base (детекция)</div>
+            <div class="tb"><div class="dot" style="background:#a855f7;"></div>PEFT / LoRA</div>
+            <div class="tb"><div class="dot" style="background:#6366f1;"></div>PyDriller (сбор данных)</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;">
-            <p class="bold"
-              style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">
-              Backend</p>
-            <div class="tb">
-              <div class="dot" style="background:#00add8;"></div>Go 1.22
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#003b57;"></div>SQLite + go-sqlite3
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#f05033;"></div>go-git (клонирование)
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#e74c3c;"></div>AES-256-GCM
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#2ecc71;"></div>GitHub OAuth2
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#0099aa;"></div>SSE стриминг
-            </div>
+            <p class="bold" style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">Backend</p>
+            <div class="tb"><div class="dot" style="background:#00add8;"></div>Go 1.24</div>
+            <div class="tb"><div class="dot" style="background:#336791;"></div>PostgreSQL + lib/pq</div>
+            <div class="tb"><div class="dot" style="background:#f05033;"></div>go-git (клонирование)</div>
+            <div class="tb"><div class="dot" style="background:#e74c3c;"></div>AES-256-GCM шифрование</div>
+            <div class="tb"><div class="dot" style="background:#2ecc71;"></div>GitHub OAuth2</div>
+            <div class="tb"><div class="dot" style="background:#0099aa;"></div>SSE стриминг</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;">
-            <p class="bold"
-              style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">
-              Frontend / Ops</p>
-            <div class="tb">
-              <div class="dot" style="background:#61dafb;"></div>React 18 + Vite
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#38bdf8;"></div>Tailwind CSS
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#1e1e1e;"></div>Monaco Editor (Diff)
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#0db7ed;"></div>Docker Compose
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#009639;"></div>nginx (proxy + CSP)
-            </div>
-            <div class="tb">
-              <div class="dot" style="background:#f97316;"></div>Kaggle (обучение)
-            </div>
+            <p class="bold" style="font-size:11px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.08em;">Frontend</p>
+            <div class="tb"><div class="dot" style="background:#61dafb;"></div>React 19 + Vite</div>
+            <div class="tb"><div class="dot" style="background:#38bdf8;"></div>Tailwind CSS</div>
+            <div class="tb"><div class="dot" style="background:#1e1e1e;"></div>Monaco Editor (Diff)</div>
           </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <span style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.08em;">Инфраструктура:</span>
+          <div class="tb" style="padding:5px 10px;font-size:11px;"><div class="dot" style="background:#0db7ed;"></div>Docker Compose</div>
+          <div class="tb" style="padding:5px 10px;font-size:11px;"><div class="dot" style="background:#009639;"></div>nginx (reverse proxy + CSP)</div>
+          <div class="tb" style="padding:5px 10px;font-size:11px;"><div class="dot" style="background:#f97316;"></div>Kaggle GPU (обучение моделей)</div>
         </div>
       </div>
     </div>
@@ -1527,12 +1476,14 @@ target: {code_after}</pre>
             <p class="bold" style="color:var(--accent);font-size:13px;">Go Backend (порт 8080)</p>
             <div class="card" style="padding:14px 18px;">
               <ul class="sl">
-                <li><code>POST /api/analyze</code> — запустить анализ репозитория</li>
-                <li><code>GET  /api/analyze/progress</code> — SSE прогресс</li>
+                <li><code>GET  /api/analyze/stream</code> — SSE анализ репозитория</li>
+                <li><code>POST /api/analyze/upload</code> — анализ ZIP-архива</li>
                 <li><code>GET  /api/history</code> — история анализов</li>
-                <li><code>GET  /api/analysis/{id}</code> — результаты анализа</li>
+                <li><code>GET  /api/history/:id/results</code> — результаты анализа</li>
+                <li><code>DELETE /api/history/:id</code> — удалить анализ</li>
+                <li><code>GET  /api/export/:id</code> — скачать ZIP с рефакторингом</li>
                 <li><code>POST /api/push</code> — пуш рефакторинга в GitHub</li>
-                <li><code>POST /api/auth/github</code> — OAuth авторизация</li>
+                <li><code>GET  /api/auth/github</code> — OAuth авторизация</li>
                 <li><code>GET  /api/auth/me</code> — текущий пользователь</li>
                 <li><code>POST /api/auth/logout</code> — выход</li>
               </ul>
@@ -1543,7 +1494,8 @@ target: {code_after}</pre>
             <div class="card" style="padding:14px 18px;">
               <ul class="sl">
                 <li><code>POST /detect</code> — определение паттерна запаха кода (AST/regex)</li>
-                <li><code>POST /refactor</code> — генерация рефакторинга через CodeT5</li>
+                <li><code>POST /refactor</code> — генерация рефакторинга через StarCoder2</li>
+                <li><code>POST /predict</code> — detect + refactor одним запросом</li>
                 <li><code>GET  /health</code> — проверка статуса ML-сервиса</li>
               </ul>
             </div>
@@ -1554,8 +1506,9 @@ target: {code_after}</pre>
     "complexity_before": 8 }
 
 POST /refactor
-{ "language": "python", "fragment": "...",
-  "original_code": "...", "fragment_offset": 5 }
+{ "language": "python", "pattern": "Deep Nesting",
+  "fragment": "...", "original_code": "...",
+  "fragment_offset": 5 }
 → { "refactored_code": "...",
     "confidence": 0.83, "complexity_after": 3 }</pre>
           </div>
@@ -1667,7 +1620,7 @@ POST /refactor
             </div>
             <div>
               <p style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:6px;letter-spacing:.05em;">ПОСЛЕ
-                — CodeT5 рефакторинг (CC = 2)</p>
+                — StarCoder2 рефакторинг (CC = 2)</p>
               <pre>def process(data, flag, n,
             timeout, retry):
     if not flag or timeout &lt;= 30:
@@ -1808,20 +1761,22 @@ POST /refactor
         </div>
         <div class="g2 stagger" style="align-items:start;">
           <div class="card">
-            <h3 style="margin-bottom:12px;">Ограничения модели</h3>
+            <h3 style="margin-bottom:12px;">Ограничения системы</h3>
             <ul class="sl">
-              <li>Контекстное окно 512 токенов — решено фрагментацией</li>
-              <li>Seq2seq не гарантирует компилируемость вывода</li>
-              <li>Качество зависит от похожести кода с обучающей выборкой</li>
+              <li>CodeBERT: weighted F1 66% — Long Method / God Function / High Complexity похожи и путаются</li>
+              <li>StarCoder2: seq2seq не гарантирует компилируемость вывода</li>
+              <li>Контекстное окно 512 токенов — решено паттерн-специфичной фрагментацией</li>
               <li>Не поддерживаются языки вне датасета (Ruby, Rust и др.)</li>
             </ul>
           </div>
           <div class="card">
             <h3 style="margin-bottom:12px;">Решённые технические проблемы</h3>
             <ul class="sl">
-              <li>Формат запроса к модели не совпадал с форматом обучения — исправлено, качество рефакторинга значительно выросло</li>
-              <li>Токены доступа хранились в открытом виде — переведены на шифрование AES-256-GCM</li>
-              <li>После перезапуска контейнеров сервис возвращал ошибку — решено через динамический DNS-резолвер в nginx</li>
+              <li>Галлюцинация модели на сложных функциях — добавлен детектор зацикливания (повтор строк > 40%)</li>
+              <li>Нефункциональные фрагменты вызывали галлюцинации — добавлена проверка наличия функции</li>
+              <li>Паттерн-специфичный фрагмент: Long Parameter List передаёт только сигнатуру, не всё тело</li>
+              <li>Токены доступа хранились в открытом виде — переведены на AES-256-GCM</li>
+              <li>SQLite не масштабировался — мигрировали на PostgreSQL в отдельном контейнере</li>
             </ul>
           </div>
         </div>
@@ -1840,32 +1795,29 @@ POST /refactor
           <div class="divider"></div>
         </div>
         <div class="g3 stagger">
-          <div class="stat-block"><span class="stat-val">15/15</span><span class="stat-label">паттернов детектируются
-              корректно</span></div>
-          <div class="stat-block"><span class="stat-val">4</span><span class="stat-label">языка программирования
-              поддерживаются</span></div>
-          <div class="stat-block"><span class="stat-val">100%</span><span class="stat-label">файлов репозитория проходят
-              анализ</span></div>
+          <div class="stat-block"><span class="stat-val">66%</span><span class="stat-label">weighted F1 CodeBERT на 15 классах</span></div>
+          <div class="stat-block"><span class="stat-val">5</span><span class="stat-label">языков программирования</span></div>
+          <div class="stat-block"><span class="stat-val">6 237</span><span class="stat-label">примеров в датасете детекции</span></div>
         </div>
         <div class="g2 stagger" style="align-items:start;">
           <div class="card">
             <h3 style="margin-bottom:10px;">Функциональное тестирование</h3>
             <ul class="sl">
               <li>Анализ реальных репозиториев (django, flask, gin)</li>
-              <li>Все 15 паттернов верно распознаются</li>
-              <li>SSE прогресс корректно передаётся в UI</li>
-              <li>Push в GitHub создаёт корректный коммит</li>
-              <li>История сохраняется и загружается</li>
+              <li>CodeBERT корректно классифицирует Deep Nesting, Magic Numbers, Large Class и др.</li>
+              <li>tryCommitFix применяет реальные правки из истории коммитов</li>
+              <li>Push в GitHub создаёт корректный коммит в отдельной ветке</li>
+              <li>История анализов сохраняется в PostgreSQL</li>
             </ul>
           </div>
           <div class="card">
-            <h3 style="margin-bottom:10px;">Тестирование модели</h3>
+            <h3 style="margin-bottom:10px;">Тестирование моделей</h3>
             <ul class="sl">
-              <li>Детекция мусорного вывода: mojibake, длина, ASCII-доля</li>
-              <li>При мусоре возвращается исходный код, confidence = 0</li>
-              <li>Сложность кода снижается в большинстве случаев</li>
-              <li>Уверенность отражает реальную вероятность модели</li>
-              <li>Фрагментация корректно собирает файл обратно</li>
+              <li>CodeBERT: precision/recall по 15 классам, weighted F1 = 0.66</li>
+              <li>Детектор повторений: зацикливание модели (> 40% одинаковых строк) → возврат оригинала</li>
+              <li>Детектор мусора: mojibake, ASCII-доля, длина вывода</li>
+              <li>Паттерн-специфичный фрагмент снижает галлюцинации на сложных функциях</li>
+              <li>Уверенность (softmax mean) отражает реальную вероятность модели</li>
             </ul>
           </div>
         </div>
@@ -1881,40 +1833,37 @@ POST /refactor
           <div class="divider"></div>
         </div>
         <div class="g3 stagger">
-          <div class="stat-block"><span class="stat-val">18</span><span class="stat-label">репозиториев в
-              датасете</span></div>
-          <div class="stat-block"><span class="stat-val">15</span><span class="stat-label">паттернов запахов кода</span>
-          </div>
-          <div class="stat-block"><span class="stat-val">4</span><span class="stat-label">языка программирования</span>
-          </div>
+          <div class="stat-block"><span class="stat-val">2</span><span class="stat-label">обученные ML-модели</span></div>
+          <div class="stat-block"><span class="stat-val">15</span><span class="stat-label">паттернов запахов кода</span></div>
+          <div class="stat-block"><span class="stat-val">5</span><span class="stat-label">языков программирования</span></div>
         </div>
         <div class="g2 stagger" style="align-items:start;">
           <div style="display:flex;flex-direction:column;gap:8px;">
             <div class="ci">
               <div class="ci-icon">✓</div>
-              <p>Разработан сервис с авторизацией через GitHub OAuth и подключением к репозиториям</p>
+              <p>Дообучена модель <strong>CodeBERT</strong> для ML-детекции 15 паттернов (weighted F1 = 66%, 6 237 примеров)</p>
             </div>
             <div class="ci">
               <div class="ci-icon">✓</div>
-              <p>Дообучена модель CodeT5 на реальных commit-парах из 18 открытых репозиториев</p>
+              <p>Дообучена модель <strong>StarCoder2-3B + LoRA</strong> на commit-парах из 52 репозиториев для генерации рефакторинга</p>
             </div>
             <div class="ci">
               <div class="ci-icon">✓</div>
-              <p>Реализован двухэтапный пайплайн: детекция паттернов + генерация рефакторинга</p>
+              <p>Реализован <strong>tryCommitFix</strong>: система приоритетно использует реальные правки из истории коммитов</p>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px;">
             <div class="ci">
               <div class="ci-icon">✓</div>
-              <p>Публикация изменений в репозиторий отдельной git-веткой</p>
+              <p>Разработан сервис с GitHub OAuth, PostgreSQL, SSE-стримингом и публикацией в отдельную git-ветку</p>
             </div>
             <div class="ci">
               <div class="ci-icon">✓</div>
-              <p>Сервис развёртывается одной командой <code>docker compose up</code></p>
+              <p>Паттерн-специфичная фрагментация и детектор зацикливания снижают процент галлюцинаций модели</p>
             </div>
             <div class="ci">
               <div class="ci-icon">✓</div>
-              <p>Визуализация изменений в редакторе с подсветкой синтаксиса</p>
+              <p>Сервис развёртывается одной командой <code>docker compose up</code>, 4 контейнера</p>
             </div>
           </div>
         </div>
@@ -1930,8 +1879,9 @@ POST /refactor
           <div class="divider" style="margin:14px auto;"></div>
           <p style="max-width:600px;margin:0 auto 22px;font-size:14px;line-height:1.7;">
             Разработан сервис автоматического рефакторинга legacy-кода на основе ML-анализа паттернов изменений.
-            Система объединяет статический AST-анализ и нейросетевую генерацию исправлений
-            на базе дообученной модели CodeT5. Все поставленные задачи выполнены.
+            Система включает две обученные модели: <strong>CodeBERT</strong> для ML-детекции 15 паттернов
+            и <strong>StarCoder2-3B + LoRA</strong> для генерации рефакторинга на основе commit-пар.
+            История коммитов используется как приоритетный источник исправлений (tryCommitFix). Все поставленные задачи выполнены.
           </p>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:22px;" class="stagger">
             <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
@@ -1939,16 +1889,16 @@ POST /refactor
               <span class="stat-label">паттернов запахов кода</span>
             </div>
             <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
-              <span class="stat-val" style="font-size:24px;">4</span>
-              <span class="stat-label">языка программирования</span>
+              <span class="stat-val" style="font-size:24px;">5</span>
+              <span class="stat-label">языков программирования</span>
             </div>
             <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
-              <span class="stat-val" style="font-size:24px;">18</span>
-              <span class="stat-label">репозиториев в датасете</span>
+              <span class="stat-val" style="font-size:24px;">2</span>
+              <span class="stat-label">обученные ML-модели</span>
             </div>
             <div class="stat-block" style="text-align:center;min-width:120px;padding:12px 16px;">
-              <span class="stat-val" style="font-size:24px;">3</span>
-              <span class="stat-label">Docker-контейнера</span>
+              <span class="stat-val" style="font-size:24px;">66%</span>
+              <span class="stat-label">F1 детекции CodeBERT</span>
             </div>
           </div>
         </div>

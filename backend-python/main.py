@@ -4,9 +4,17 @@ import re
 import torch
 from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSequenceClassification
 from peft import PeftModel
 import uvicorn
+
+try:
+    from langchain_groq import ChatGroq
+    from langchain_core.messages import SystemMessage, HumanMessage
+    _groq_key = os.environ.get("GROQ_API_KEY", "")
+    _llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.0, api_key=_groq_key) if _groq_key else None
+except Exception:
+    _llm = None
 
 app = FastAPI()
 
@@ -28,6 +36,30 @@ base_model = AutoModelForCausalLM.from_pretrained(
 model = PeftModel.from_pretrained(base_model, ADAPTER_DIR)
 model.eval()
 print(f"Model loaded on {device}")
+
+CLASSIFIER_DIR = os.environ.get("CLASSIFIER_DIR", os.path.join(os.path.dirname(__file__), "classifier"))
+_clf_model = None
+_clf_tokenizer = None
+_clf_id2label = None
+
+if os.path.isdir(CLASSIFIER_DIR):
+    try:
+        import json
+        _clf_tokenizer = AutoTokenizer.from_pretrained(CLASSIFIER_DIR, local_files_only=True)
+        _clf_model = AutoModelForSequenceClassification.from_pretrained(
+            CLASSIFIER_DIR,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            local_files_only=True,
+        ).to(device)
+        _clf_model.eval()
+        label_map_path = os.path.join(CLASSIFIER_DIR, "label_map.json")
+        if os.path.exists(label_map_path):
+            with open(label_map_path) as f:
+                _clf_id2label = json.load(f)["id2label"]
+        print("CodeBERT classifier loaded")
+    except Exception as e:
+        print(f"CodeBERT classifier not loaded: {e}")
+        _clf_model = None
 
 EXTENSION_TO_LANG = {
     ".py":   "python",
@@ -78,7 +110,7 @@ class DetectResponse(BaseModel):
 
 class RefactorRequest(BaseModel):
     language: str
-    pattern: str
+    pattern: str = ""
     fragment: str
     original_code: str
     fragment_offset: int
@@ -370,6 +402,16 @@ def is_output_corrupted(original: str, refactored: str) -> bool:
         return sum(1 for c in s if ord(c) < 128) / len(s) if s else 1.0
     if ascii_ratio(original) > 0.85 and ascii_ratio(refactored) < ascii_ratio(original) - 0.15:
         return True
+    lines = [l.strip() for l in refactored.split("\n") if l.strip()]
+    if len(lines) >= 5:
+        for i in range(len(lines) - 4):
+            if len(set(lines[i:i+5])) == 1:
+                return True
+    if lines:
+        from collections import Counter
+        most_common_count = Counter(lines).most_common(1)[0][1]
+        if most_common_count / len(lines) > 0.4 and len(lines) > 10:
+            return True
     return False
 
 
@@ -478,16 +520,66 @@ def extract_smell_fragment(code: str, lang: str) -> tuple[str, int]:
     return "\n".join(lines[:MAX_FRAGMENT_LINES]), 0
 
 
+def extract_pattern_fragment(code: str, lang: str, pattern: str) -> tuple[str, int]:
+    lines = code.split("\n")
+
+    if pattern == "Long Parameter List":
+        if lang == "python":
+            try:
+                tree = ast.parse(code)
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        p = len(node.args.args) + len(node.args.posonlyargs)
+                        if p >= 5:
+                            start = node.lineno - 1
+                            end = min(start + 8, node.end_lineno)
+                            return "\n".join(lines[start:end]), start
+            except SyntaxError:
+                pass
+
+    if pattern == "Deep Nesting":
+        max_depth, deepest_line = 0, 0
+        for i, line in enumerate(lines):
+            if not line.strip():
+                continue
+            depth = (len(line) - len(line.lstrip())) // 4
+            if depth > max_depth:
+                max_depth = depth
+                deepest_line = i
+        start = max(0, deepest_line - 5)
+        end = min(len(lines), deepest_line + 15)
+        return "\n".join(lines[start:end]), start
+
+    if pattern in ("Empty Catch Block", "Dead Code", "Commented-Out Code", "Magic Numbers"):
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if pattern == "Empty Catch Block" and re.search(r'except|catch', stripped):
+                start = max(0, i - 2)
+                end = min(len(lines), i + 8)
+                return "\n".join(lines[start:end]), start
+            if pattern == "Commented-Out Code" and stripped.startswith(("#", "//")):
+                start = max(0, i - 2)
+                end = min(len(lines), i + 10)
+                return "\n".join(lines[start:end]), start
+            if pattern == "Magic Numbers" and re.search(r'(?<![.\w])\d{2,}(?!\w)', stripped):
+                start = max(0, i - 3)
+                end = min(len(lines), i + 10)
+                return "\n".join(lines[start:end]), start
+
+    return extract_smell_fragment(code, lang)
+
+
 def splice_fragment_back(original: str, refactored_fragment: str, offset: int, fragment_line_count: int) -> str:
     lines = original.split("\n")
     end = min(offset + fragment_line_count, len(lines))
     return "\n".join(lines[:offset] + refactored_fragment.split("\n") + lines[end:])
 
 
-def _call_model(lang: str, input_code: str) -> tuple[str, float]:
-    prompt = f"<refactor>\nlanguage: {lang}\ninput:\n{input_code}\noutput:\n"
-    max_new = 80 if device == "cpu" else 300
-    inputs = tokenizer(prompt, return_tensors="pt", max_length=256, truncation=True).to(device)
+def _call_model(lang: str, input_code: str, pattern: str = "") -> tuple[str, float]:
+    pattern_hint = f"pattern: {pattern}\n" if pattern else ""
+    prompt = f"<refactor>\nlanguage: {lang}\n{pattern_hint}input:\n{input_code}\noutput:\n"
+    max_new = 128 if device == "cpu" else 512
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=512, truncation=True).to(device)
     prompt_len = inputs["input_ids"].shape[1]
 
     end_token_id = tokenizer.convert_tokens_to_ids("</refactor>")
@@ -521,12 +613,18 @@ def _call_model(lang: str, input_code: str) -> tuple[str, float]:
     return refactored_fragment, confidence
 
 
-def generate_refactored(lang: str, code: str) -> tuple[str, float]:
+def _has_function(fragment: str, lang: str) -> bool:
+    if lang == "python":
+        return bool(re.search(r'^\s*(async\s+)?def\s+\w+\s*\(', fragment, re.MULTILINE))
+    return bool(re.search(r'(function\s+\w+|=>\s*\{|func\s+\w+|\bdef\s+\w+)', fragment))
+
+
+def generate_refactored(lang: str, code: str, pattern: str = "") -> tuple[str, float]:
     lines = code.split("\n")
     use_fragment = len(lines) > MAX_DIRECT_LINES
 
     if use_fragment:
-        fragment, offset = extract_smell_fragment(code, lang)
+        fragment, offset = extract_pattern_fragment(code, lang, pattern)
         fragment_line_count = len(fragment.split("\n"))
         input_code = fragment
     else:
@@ -534,7 +632,10 @@ def generate_refactored(lang: str, code: str) -> tuple[str, float]:
         offset = 0
         fragment_line_count = len(lines)
 
-    refactored_fragment, confidence = _call_model(lang, input_code)
+    if not _has_function(input_code, lang):
+        return code, 0.0
+
+    refactored_fragment, confidence = _call_model(lang, input_code, pattern)
 
     if is_output_corrupted(input_code, refactored_fragment):
         return code, 0.0
@@ -594,37 +695,76 @@ def detect_pattern_on_code(code: str, lang: str) -> tuple[str, str] | None:
     return None
 
 
+def _classify_with_codebert(code: str) -> tuple[str, float] | None:
+    if _clf_model is None or _clf_tokenizer is None:
+        return None
+    try:
+        inputs = _clf_tokenizer(
+            code, return_tensors="pt", truncation=True,
+            padding="max_length", max_length=256,
+        ).to(device)
+        with torch.no_grad():
+            logits = _clf_model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)[0]
+        pred_id = int(probs.argmax())
+        confidence = float(probs[pred_id])
+        label = _clf_id2label[str(pred_id)] if _clf_id2label else _clf_model.config.id2label[pred_id]
+        return label, confidence
+    except Exception:
+        return None
+
+
 @app.post("/detect", response_model=DetectResponse)
 async def detect(request: DetectRequest):
     lang = detect_lang(request.filename)
     cc_before = cyclomatic_complexity(request.code, lang)
-    result = detect_pattern_on_code(request.code, lang)
 
-    if result is None:
-        fragment, offset = extract_smell_fragment(request.code, lang)
-        return DetectResponse(
-            pattern="Clean Code",
-            explanation="No refactoring needed — code already follows best practices.",
-            language=lang,
-            fragment=fragment,
-            fragment_offset=offset,
-            fragment_line_count=len(fragment.split("\n")),
-            complexity_before=cc_before,
-        )
-
-    pattern_name, explanation = result
     lines = request.code.split("\n")
     if len(lines) > MAX_DIRECT_LINES:
         fragment, offset = extract_smell_fragment(request.code, lang)
     else:
         fragment, offset = request.code, 0
 
+    clf_result = _classify_with_codebert(fragment)
+    if clf_result is not None:
+        pattern_name, _ = clf_result
+        if pattern_name != "Clean Code":
+            key = next((k for k, v in PATTERN_INFO.items() if v["name"] == pattern_name), None)
+            if key:
+                info = PATTERN_INFO[key]
+                depth = max_indent_depth(request.code)
+                cc = cyclomatic_complexity(request.code, lang)
+                params = count_params(request.code, lang)
+                fn_lines = max_function_lines(request.code, lang)
+                try:
+                    explanation = info["template"].format(
+                        depth=depth, complexity=cc, params=params,
+                        lines=fn_lines, count=2, name="", methods=0,
+                        lines_before=len(lines), lines_after=len(lines),
+                    )
+                except KeyError:
+                    explanation = info["template"]
+                return DetectResponse(
+                    pattern=pattern_name, explanation=explanation, language=lang,
+                    fragment=fragment, fragment_offset=offset,
+                    fragment_line_count=len(fragment.split("\n")),
+                    complexity_before=cc_before,
+                )
+
+    result = detect_pattern_on_code(request.code, lang)
+    if result is None:
+        return DetectResponse(
+            pattern="Clean Code",
+            explanation="No refactoring needed — code already follows best practices.",
+            language=lang, fragment=fragment, fragment_offset=offset,
+            fragment_line_count=len(fragment.split("\n")),
+            complexity_before=cc_before,
+        )
+
+    pattern_name, explanation = result
     return DetectResponse(
-        pattern=pattern_name,
-        explanation=explanation,
-        language=lang,
-        fragment=fragment,
-        fragment_offset=offset,
+        pattern=pattern_name, explanation=explanation, language=lang,
+        fragment=fragment, fragment_offset=offset,
         fragment_line_count=len(fragment.split("\n")),
         complexity_before=cc_before,
     )
@@ -632,7 +772,13 @@ async def detect(request: DetectRequest):
 
 @app.post("/refactor", response_model=RefactorResponse)
 async def refactor(request: RefactorRequest):
-    refactored_fragment, confidence = _call_model(request.language, request.fragment)
+    if not _has_function(request.fragment, request.language):
+        return RefactorResponse(
+            refactored_code=request.original_code,
+            confidence=0.0,
+            complexity_after=cyclomatic_complexity(request.original_code, request.language),
+        )
+    refactored_fragment, confidence = _call_model(request.language, request.fragment, request.pattern)
 
     if is_output_corrupted(request.fragment, refactored_fragment):
         full_refactored = request.original_code
@@ -679,6 +825,7 @@ async def predict_refactoring(request: CodeRequest):
         fragment_line_count=detect_resp.fragment_line_count,
     ))
 
+
     return RefactorSuggestion(
         pattern=detect_resp.pattern,
         confidence=refactor_resp.confidence,
@@ -687,6 +834,92 @@ async def predict_refactoring(request: CodeRequest):
         language=lang,
         complexity_before=cc_before,
         complexity_after=refactor_resp.complexity_after,
+    )
+
+
+_PATTERN_NAMES = ", ".join(PATTERN_INFO.keys())
+
+_DETECT_SYSTEM = (
+    "Ты — анализатор запахов кода. "
+    "Твой ответ — ТОЛЬКО одно название паттерна из списка или 'clean_code'. "
+    "Никаких объяснений, только название."
+)
+
+def _detect_with_llm(code: str, lang: str) -> str | None:
+    if not _llm:
+        return None
+    try:
+        prompt = (
+            f"Язык: {lang}\n\n"
+            f"Код:\n```\n{code[:3000]}\n```\n\n"
+            f"Определи запах кода. Допустимые значения:\n{_PATTERN_NAMES}, clean_code\n"
+            f"Ответ — только одно значение из списка."
+        )
+        result = _llm.invoke([SystemMessage(content=_DETECT_SYSTEM), HumanMessage(content=prompt)])
+        raw = result.content.strip().lower().replace(" ", "_").replace("-", "_")
+        for key in list(PATTERN_INFO.keys()) + ["clean_code"]:
+            if key in raw:
+                return key
+        return None
+    except Exception:
+        return None
+
+
+class DetectMLResponse(BaseModel):
+    pattern: str
+    explanation: str
+    language: str
+    source: str
+    fragment: str
+    fragment_offset: int
+    fragment_line_count: int
+    complexity_before: int
+
+
+@app.post("/detect-ml", response_model=DetectMLResponse)
+async def detect_ml(request: DetectRequest):
+    lang = detect_lang(request.filename)
+    cc_before = cyclomatic_complexity(request.code, lang)
+    fragment, offset = extract_smell_fragment(request.code, lang)
+
+    ml_pattern = _detect_with_llm(request.code, lang)
+
+    if ml_pattern and ml_pattern != "clean_code" and ml_pattern in PATTERN_INFO:
+        info = PATTERN_INFO[ml_pattern]
+        return DetectMLResponse(
+            pattern=info["name"],
+            explanation=info["template"],
+            language=lang,
+            source="llm",
+            fragment=fragment,
+            fragment_offset=offset,
+            fragment_line_count=len(fragment.split("\n")),
+            complexity_before=cc_before,
+        )
+
+    static = detect_pattern_on_code(request.code, lang)
+    if static:
+        pattern_name, explanation = static
+        return DetectMLResponse(
+            pattern=pattern_name,
+            explanation=explanation,
+            language=lang,
+            source="static",
+            fragment=fragment,
+            fragment_offset=offset,
+            fragment_line_count=len(fragment.split("\n")),
+            complexity_before=cc_before,
+        )
+
+    return DetectMLResponse(
+        pattern="Clean Code",
+        explanation="No refactoring needed — code already follows best practices.",
+        language=lang,
+        source="static",
+        fragment=fragment,
+        fragment_offset=offset,
+        fragment_line_count=len(fragment.split("\n")),
+        complexity_before=cc_before,
     )
 
 

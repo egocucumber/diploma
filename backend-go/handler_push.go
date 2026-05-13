@@ -53,7 +53,7 @@ func handlePush(c *gin.Context) {
 		return
 	}
 
-	rows, err := db.Query(`SELECT file_name, refactored_code FROM results WHERE analysis_id=?`, req.AnalysisID)
+	rows, err := db.Query(`SELECT file_name, refactored_code FROM results WHERE analysis_id=$1`, req.AnalysisID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

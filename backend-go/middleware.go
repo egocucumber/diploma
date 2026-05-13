@@ -36,7 +36,7 @@ func authMiddleware() gin.HandlerFunc {
 		err = db.QueryRow(`
 			SELECT u.id, u.access_token FROM sessions s
 			JOIN users u ON s.user_id = u.id
-			WHERE s.token = ? AND s.expires_at > CURRENT_TIMESTAMP
+			WHERE s.token = $1 AND s.expires_at > CURRENT_TIMESTAMP
 		`, sessionToken).Scan(&userID, &encryptedToken)
 		if err != nil {
 			c.JSON(401, gin.H{"error": "Session expired"})

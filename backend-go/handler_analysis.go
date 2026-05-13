@@ -78,21 +78,21 @@ func callPythonML(filename string, code string) (*PythonResponse, error) {
 
 func runAnalysis(c *gin.Context, dir string, repoURL string, repo *git.Repository) {
 	userID, _ := c.Get("user_id")
-	res, err := db.Exec(`INSERT INTO analyses (repo_url, user_id, status) VALUES (?, ?, 'running')`, repoURL, userID)
+	var analysisID int64
+	err := db.QueryRow(`INSERT INTO analyses (repo_url, user_id, status) VALUES ($1, $2, 'running') RETURNING id`, repoURL, userID).Scan(&analysisID)
 	if err != nil {
 		writeSSE(c.Writer, "error", gin.H{"message": "Database error: " + err.Error()})
 		return
 	}
-	analysisID, _ := res.LastInsertId()
 	defer func() {
-		db.Exec(`UPDATE analyses SET finished_at=CURRENT_TIMESTAMP, status='done' WHERE id=?`, analysisID)
+		db.Exec(`UPDATE analyses SET finished_at=CURRENT_TIMESTAMP, status='done' WHERE id=$1`, analysisID)
 	}()
 
 	resultCount := 0
 
 	if repo != nil {
 		writeSSE(c.Writer, "status", gin.H{"message": "Extracting commit history..."})
-		pairs, freqs, err := extractCommitHistory(repo, 50)
+		pairs, freqs, err := extractCommitHistory(repo, 200)
 		if err == nil && len(pairs) > 0 {
 			writeSSE(c.Writer, "commit_history", gin.H{"pairs": len(pairs), "hotFiles": freqs})
 			for i, pair := range pairs {
@@ -102,8 +102,15 @@ func runAnalysis(c *gin.Context, dir string, repoURL string, repo *git.Repositor
 					"file":     pair.FileName,
 					"fileName": filepath.Base(pair.FileName),
 				})
-				pyResp, err := callPythonML(pair.FileName, pair.Before)
-				if err != nil {
+				pyResp, ok := tryCommitFix(pair.FileName, pair.Before, pair.After, pair.Message)
+				if !ok {
+					var err error
+					pyResp, err = callPythonML(pair.FileName, pair.Before)
+					if err != nil {
+						continue
+					}
+				}
+				if pyResp.Pattern == "Clean Code" {
 					continue
 				}
 				resultCount++
@@ -113,11 +120,11 @@ func runAnalysis(c *gin.Context, dir string, repoURL string, repo *git.Repositor
 					ID: resultCount, FileName: pair.FileName, Pattern: pyResp.Pattern,
 					Confidence: pyResp.Confidence, OriginalCode: pair.Before,
 					RefactoredCode: pyResp.RefactoredCode,
-					Explanation:    pyResp.Explanation + "\n\nКоммит: " + pair.Message,
+					Explanation:    pyResp.Explanation,
 					Language: pyResp.Language, LinesOriginal: linesOrig, LinesRefactored: linesRef,
 					ComplexityBefore: pyResp.ComplexityBefore, ComplexityAfter: pyResp.ComplexityAfter,
 				}
-				db.Exec(`INSERT INTO results (analysis_id,file_name,pattern,confidence,original_code,refactored_code,explanation,language,lines_original,lines_refactored,complexity_before,complexity_after) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+				db.Exec(`INSERT INTO results (analysis_id,file_name,pattern,confidence,original_code,refactored_code,explanation,language,lines_original,lines_refactored,complexity_before,complexity_after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 					analysisID, pair.FileName, pyResp.Pattern, pyResp.Confidence,
 					pair.Before, pyResp.RefactoredCode, result.Explanation, pyResp.Language,
 					linesOrig, linesRef, pyResp.ComplexityBefore, pyResp.ComplexityAfter)
@@ -136,7 +143,7 @@ func runAnalysis(c *gin.Context, dir string, repoURL string, repo *git.Repositor
 		langStats[ext]++
 	}
 	writeSSE(c.Writer, "total", gin.H{"count": len(files), "langStats": langStats})
-	db.Exec(`UPDATE analyses SET total_files=? WHERE id=?`, len(files), analysisID)
+	db.Exec(`UPDATE analyses SET total_files=$1 WHERE id=$2`, len(files), analysisID)
 
 	for i, filePath := range files {
 		relPath, _ := filepath.Rel(dir, filePath)
@@ -165,14 +172,14 @@ func runAnalysis(c *gin.Context, dir string, repoURL string, repo *git.Repositor
 			Language: pyResp.Language, LinesOriginal: linesOrig, LinesRefactored: linesRef,
 			ComplexityBefore: pyResp.ComplexityBefore, ComplexityAfter: pyResp.ComplexityAfter,
 		}
-		db.Exec(`INSERT INTO results (analysis_id,file_name,pattern,confidence,original_code,refactored_code,explanation,language,lines_original,lines_refactored,complexity_before,complexity_after) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		db.Exec(`INSERT INTO results (analysis_id,file_name,pattern,confidence,original_code,refactored_code,explanation,language,lines_original,lines_refactored,complexity_before,complexity_after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 			analysisID, relPath, pyResp.Pattern, pyResp.Confidence,
 			string(content), pyResp.RefactoredCode, pyResp.Explanation, pyResp.Language,
 			linesOrig, linesRef, pyResp.ComplexityBefore, pyResp.ComplexityAfter)
 		writeSSE(c.Writer, "result", result)
 	}
 
-	db.Exec(`UPDATE analyses SET result_count=? WHERE id=?`, resultCount, analysisID)
+	db.Exec(`UPDATE analyses SET result_count=$1 WHERE id=$2`, resultCount, analysisID)
 	writeSSE(c.Writer, "done", gin.H{
 		"total_results": resultCount,
 		"analysis_id":   analysisID,
@@ -190,7 +197,7 @@ func handleAnalyzeStream(c *gin.Context) {
 
 	userID, _ := c.Get("user_id")
 	var runningCount int
-	db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE user_id=? AND status='running'`, userID).Scan(&runningCount)
+	db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE user_id=$1 AND status='running'`, userID).Scan(&runningCount)
 	if runningCount >= 2 {
 		c.JSON(429, gin.H{"error": "У вас уже запущено 2 анализа. Дождитесь завершения перед запуском нового."})
 		return
@@ -212,7 +219,7 @@ func handleAnalyzeStream(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	cloneOpts := &git.CloneOptions{URL: validURL, Depth: 50}
+	cloneOpts := &git.CloneOptions{URL: validURL, Depth: 200}
 	if ghToken != "" {
 		cloneOpts.Auth = &githttp.BasicAuth{Username: "token", Password: ghToken}
 	}

@@ -11,8 +11,8 @@ import (
 func handleGetHistory(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	rows, err := db.Query(`
-		SELECT id, repo_url, started_at, COALESCE(finished_at,''), total_files, result_count, status
-		FROM analyses WHERE user_id=? ORDER BY started_at DESC LIMIT 50
+		SELECT id, repo_url, started_at, COALESCE(finished_at::TEXT,''), total_files, result_count, status
+		FROM analyses WHERE user_id=$1 ORDER BY started_at DESC LIMIT 50
 	`, userID)
 	if err != nil {
 		log.Printf("handleGetHistory query error: %v (user_id=%v)", err, userID)
@@ -37,14 +37,14 @@ func handleGetHistoryResults(c *gin.Context) {
 	id := c.Param("id")
 	userID, _ := c.Get("user_id")
 	var ownerID int64
-	if err := db.QueryRow(`SELECT COALESCE(user_id,0) FROM analyses WHERE id=?`, id).Scan(&ownerID); err != nil || ownerID != userID {
+	if err := db.QueryRow(`SELECT COALESCE(user_id,0) FROM analyses WHERE id=$1`, id).Scan(&ownerID); err != nil || ownerID != userID {
 		c.JSON(403, gin.H{"error": "Доступ запрещён"})
 		return
 	}
 	rows, err := db.Query(`
 		SELECT id, file_name, pattern, confidence, original_code, refactored_code,
 		       explanation, language, lines_original, lines_refactored, complexity_before, complexity_after
-		FROM results WHERE analysis_id=? ORDER BY id
+		FROM results WHERE analysis_id=$1 ORDER BY id
 	`, id)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -70,12 +70,12 @@ func handleDeleteHistory(c *gin.Context) {
 	id := c.Param("id")
 	userID, _ := c.Get("user_id")
 	var ownerID int64
-	if err := db.QueryRow(`SELECT COALESCE(user_id,0) FROM analyses WHERE id=?`, id).Scan(&ownerID); err != nil || ownerID != userID {
+	if err := db.QueryRow(`SELECT COALESCE(user_id,0) FROM analyses WHERE id=$1`, id).Scan(&ownerID); err != nil || ownerID != userID {
 		c.JSON(403, gin.H{"error": "Доступ запрещён"})
 		return
 	}
-	db.Exec(`DELETE FROM analyses WHERE id=?`, id)
-	db.Exec(`DELETE FROM results WHERE analysis_id=?`, id)
+	db.Exec(`DELETE FROM analyses WHERE id=$1`, id)
+	db.Exec(`DELETE FROM results WHERE analysis_id=$1`, id)
 	c.JSON(200, gin.H{"ok": true})
 }
 
@@ -84,12 +84,12 @@ func handleExport(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	var ownerID int64
 	var repoURL string
-	if err := db.QueryRow(`SELECT COALESCE(user_id,0), repo_url FROM analyses WHERE id=?`, id).Scan(&ownerID, &repoURL); err != nil || ownerID != userID {
+	if err := db.QueryRow(`SELECT COALESCE(user_id,0), repo_url FROM analyses WHERE id=$1`, id).Scan(&ownerID, &repoURL); err != nil || ownerID != userID {
 		c.JSON(403, gin.H{"error": "Доступ запрещён"})
 		return
 	}
 
-	rows, err := db.Query(`SELECT file_name, refactored_code FROM results WHERE analysis_id=?`, id)
+	rows, err := db.Query(`SELECT file_name, refactored_code FROM results WHERE analysis_id=$1`, id)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return

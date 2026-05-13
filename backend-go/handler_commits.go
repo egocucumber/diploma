@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -79,7 +84,7 @@ func extractCommitHistory(repo *git.Repository, maxCommits int) ([]CommitFilePai
 
 			freqMap[name] = append(freqMap[name], curr.commit.Hash.String()[:8])
 
-			if len(pairs) < 30 {
+			if len(pairs) < 150 {
 				fromFile, toFile, err := change.Files()
 				if err == nil && fromFile != nil && toFile != nil {
 					beforeContent, err1 := fromFile.Contents()
@@ -126,4 +131,52 @@ func containsSkipDir(path string) bool {
 		}
 	}
 	return false
+}
+
+func tryCommitFix(filename, before, after, commitMsg string) (*PythonResponse, bool) {
+	if strings.TrimSpace(before) == strings.TrimSpace(after) || len(strings.TrimSpace(after)) < 20 {
+		return nil, false
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	baseURL := pythonServiceURL()
+
+	detect := func(code string) (*DetectResponse, error) {
+		data, _ := json.Marshal(DetectPayload{Filename: filename, Code: code})
+		resp, err := client.Post(baseURL+"/detect", "application/json", bytes.NewBuffer(data))
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var d DetectResponse
+		if err := json.Unmarshal(body, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	}
+
+	dBefore, err := detect(before)
+	if err != nil || dBefore.Pattern == "Clean Code" {
+		return nil, false
+	}
+
+	dAfter, err := detect(after)
+	if err != nil {
+		return nil, false
+	}
+
+	if dAfter.ComplexityBefore >= dBefore.ComplexityBefore {
+		return nil, false
+	}
+
+	return &PythonResponse{
+		Pattern:          dBefore.Pattern,
+		Confidence:       0.92,
+		RefactoredCode:   after,
+		Explanation:      dBefore.Explanation + "\n\n[История репозитория] Паттерн исправлен в коммите: " + commitMsg,
+		Language:         dBefore.Language,
+		ComplexityBefore: dBefore.ComplexityBefore,
+		ComplexityAfter:  dAfter.ComplexityBefore,
+	}, true
 }
